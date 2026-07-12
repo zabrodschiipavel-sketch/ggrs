@@ -1,4 +1,5 @@
 pub mod elementwise;
+pub mod mulmat;
 
 use crate::context::Context;
 use crate::op::Op;
@@ -12,6 +13,7 @@ pub(crate) fn dispatch(ctx: &Context, id: TensorId, ith: usize, nth: usize) {
         Op::Scale => elementwise::scale(ctx, id, ith, nth),
         Op::Silu => elementwise::silu(ctx, id, ith, nth),
         Op::Gelu => elementwise::gelu(ctx, id, ith, nth),
+        Op::MulMat => mulmat::mul_mat(ctx, id, ith, nth),
         op => unimplemented!("ядро для {:?} ещё не реализовано", op),
     }
 }

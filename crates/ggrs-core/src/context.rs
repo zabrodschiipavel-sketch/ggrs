@@ -191,6 +191,22 @@ impl Context {
         self.unary_op(Op::Gelu, a)
     }
 
+    pub fn mul_mat(&mut self, a: TensorId, b: TensorId) -> TensorId {
+        let ta = self.t(a);
+        let tb = self.t(b);
+        assert_eq!(ta.ne[0], tb.ne[0], "mul_mat: несовпадение k");
+        assert!(
+            tb.ne[2].is_multiple_of(ta.ne[2]) && tb.ne[3].is_multiple_of(ta.ne[3]),
+            "mul_mat: broadcast a по dims 2,3"
+        );
+        let ne = [ta.ne[1], tb.ne[1], tb.ne[2], tb.ne[3]];
+        let dst = self.new_tensor(DType::F32, ne);
+        let d = self.t_mut(dst);
+        d.op = Op::MulMat;
+        d.src = [Some(a), Some(b), None, None];
+        dst
+    }
+
     fn binary_op(&mut self, op: Op, a: TensorId, b: TensorId) -> TensorId {
         let ta = self.t(a);
         let tb = self.t(b);
