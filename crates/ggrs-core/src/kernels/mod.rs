@@ -24,7 +24,6 @@ pub(crate) fn dispatch(ctx: &Context, id: TensorId, ith: usize, nth: usize) {
         Op::Cont => copy::cont(ctx, id, ith, nth),
         Op::Rope => rope::rope(ctx, id, ith, nth),
         Op::CrossEntropyLoss => loss::cross_entropy_loss(ctx, id, ith, nth),
-        op => unimplemented!("ядро для {:?} ещё не реализовано", op),
     }
 }
 

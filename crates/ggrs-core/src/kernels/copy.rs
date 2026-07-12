@@ -9,8 +9,8 @@ pub fn get_rows(ctx: &Context, dst_id: TensorId, ith: usize, nth: usize) {
     assert_eq!(a.nb[0], 4);
     let ne0 = dst.ne[0];
     let (ir0, ir1) = split(dst.ne[1], ith, nth);
-    for ir in ir0..ir1 {
-        let row = ids[ir] as usize;
+    for (ir, &id) in ids.iter().enumerate().take(ir1).skip(ir0) {
+        let row = id as usize;
         assert!(row < a.ne[1], "get_rows: индекс {row} вне диапазона");
         unsafe {
             let ps = row_ptr(ctx, a, row, 0, 0) as *const f32;

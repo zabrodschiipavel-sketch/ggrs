@@ -15,8 +15,8 @@ fn softmax_rows() {
     assert!((v[1] - e(2.) / z).abs() < 1e-6);
     assert!((v[2] - e(3.) / z).abs() < 1e-6);
     // большие значения не дают NaN (стабильность через вычитание max)
-    for i in 3..6 {
-        assert!((v[i] - 1.0 / 3.0).abs() < 1e-6);
+    for &x in &v[3..6] {
+        assert!((x - 1.0 / 3.0).abs() < 1e-6);
     }
 }
 
