@@ -21,6 +21,19 @@ fn softmax_rows() {
 }
 
 #[test]
+fn softmax_fully_masked_row_is_zero_not_nan() {
+    let mut ctx = Context::new(1 << 20);
+    let a = ctx.new_tensor_2d(DType::F32, 3, 2);
+    ctx.set_f32(a, &[f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY, 1., 2., 3.]);
+    let s = ctx.soft_max(a);
+    let g = build_forward(&ctx, s);
+    compute(&ctx, &g, 1);
+    let v = ctx.data_f32(s);
+    assert_eq!(&v[0..3], &[0.0, 0.0, 0.0], "замаскированная строка должна дать нули");
+    assert!(v[3..6].iter().all(|x| x.is_finite()));
+}
+
+#[test]
 fn rms_norm_row() {
     let mut ctx = Context::new(1 << 20);
     let a = ctx.new_tensor_2d(DType::F32, 4, 1);

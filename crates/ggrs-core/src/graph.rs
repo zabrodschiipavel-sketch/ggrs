@@ -8,19 +8,29 @@ pub struct Graph {
 pub fn build_forward(ctx: &Context, result: TensorId) -> Graph {
     let mut visited = vec![false; ctx.n_tensors()];
     let mut nodes = Vec::new();
-    visit(ctx, result, &mut visited, &mut nodes);
-    Graph { nodes }
-}
+    
+    // Итеративный DFS с явным стеком (post-order: источники раньше потребителей).
+    let mut stack = vec![(result, false)];
 
-fn visit(ctx: &Context, id: TensorId, visited: &mut Vec<bool>, nodes: &mut Vec<TensorId>) {
-    if visited[id.0] {
-        return;
+    while let Some((id, expanded)) = stack.pop() {
+        if expanded {
+            // Второй проход — узел попадает в пост-порядок ровно один раз.
+            nodes.push(id);
+            continue;
+        }
+        if visited[id.0] {
+            continue;
+        }
+        visited[id.0] = true;
+        stack.push((id, true));
+        for &src in ctx.t(id).src.iter().flatten() {
+            if !visited[src.0] {
+                stack.push((src, false));
+            }
+        }
     }
-    visited[id.0] = true;
-    for s in ctx.t(id).src.iter().flatten() {
-        visit(ctx, *s, visited, nodes);
-    }
-    nodes.push(id);
+    
+    Graph { nodes }
 }
 
 #[cfg(test)]

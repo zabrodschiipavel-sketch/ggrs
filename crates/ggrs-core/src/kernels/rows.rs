@@ -17,6 +17,13 @@ pub fn soft_max(ctx: &Context, dst_id: TensorId, ith: usize, nth: usize) {
             for i in 0..ne0 {
                 max = max.max(*pa.add(i));
             }
+            // F3: замаскированная строка — все -inf, даёт NaN
+            if max == f32::NEG_INFINITY {
+                for i in 0..ne0 {
+                    *pd.add(i) = 0.0;
+                }
+                continue;
+            }
             let mut sum = 0.0f32;
             for i in 0..ne0 {
                 let e = (*pa.add(i) - max).exp();

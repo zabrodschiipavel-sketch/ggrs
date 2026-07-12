@@ -5,7 +5,9 @@ use crate::op::Op;
 use crate::tensor::{Tensor, TensorId, MAX_DIMS, MAX_SRC};
 
 struct Arena {
-    buf: UnsafeCell<Box<[u8]>>,
+    // u64-хранилище гарантирует выравнивание 8 байт для f32/i32-доступа
+    // (vec<u8> давал бы выравнивание 1 — чтение *const f32 было бы UB).
+    buf: UnsafeCell<Box<[u64]>>,
 }
 // Ядра пишут в арену через сырые указатели из нескольких потоков,
 // каждый поток — в свои строки. Дисциплина не-алиасинга — на ядрах (как в ggml).
@@ -21,16 +23,17 @@ impl Context {
     pub fn new(mem_size: usize) -> Context {
         Context {
             tensors: Vec::new(),
-            arena: Arena { buf: UnsafeCell::new(vec![0u8; mem_size].into_boxed_slice()) },
+            arena: Arena { buf: UnsafeCell::new(vec![0u64; mem_size.div_ceil(8)].into_boxed_slice()) },
             arena_used: 0,
         }
     }
 
     fn alloc(&mut self, nbytes: usize) -> usize {
-        let offset = (self.arena_used + 31) & !31; // 32-байтное выравнивание
-        let len = unsafe { (*(*self.arena.buf.get())).len() };
-        assert!(offset + nbytes <= len, "ggrs: arena out of memory");
-        self.arena_used = offset + nbytes;
+        let offset = (self.arena_used + 31) & !31; // 32-байтное выравнивание оффсетов
+        let len = unsafe { (*(*self.arena.buf.get())).len() * 8 };
+        let end = offset.checked_add(nbytes).expect("ggrs: переполнение размера аллокации");
+        assert!(end <= len, "ggrs: arena out of memory");
+        self.arena_used = end;
         offset
     }
 
@@ -74,7 +77,7 @@ impl Context {
     }
 
     pub(crate) fn base(&self) -> *mut u8 {
-        unsafe { (*self.arena.buf.get()).as_mut_ptr() }
+        unsafe { (*self.arena.buf.get()).as_mut_ptr() as *mut u8 }
     }
 
     pub fn data_f32(&self, id: TensorId) -> &[f32] {
