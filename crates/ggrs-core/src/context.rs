@@ -122,6 +122,52 @@ impl Context {
         let off = t.offset + idx[0] * t.nb[0] + idx[1] * t.nb[1] + idx[2] * t.nb[2] + idx[3] * t.nb[3];
         unsafe { *(self.base().add(off) as *const f32) }
     }
+
+    fn new_view(&mut self, src_id: TensorId, ne: [usize; MAX_DIMS], nb: [usize; MAX_DIMS], op: Op) -> TensorId {
+        let src = self.t(src_id);
+        let t = Tensor {
+            dtype: src.dtype,
+            ne, nb, op,
+            src: [Some(src_id), None, None, None],
+            offset: src.offset,
+            op_params: [0; 8],
+            is_param: false,
+        };
+        self.push_tensor(t)
+    }
+
+    pub fn reshape_2d(&mut self, a: TensorId, ne0: usize, ne1: usize) -> TensorId {
+        self.reshape(a, [ne0, ne1, 1, 1])
+    }
+
+    pub fn reshape_3d(&mut self, a: TensorId, ne0: usize, ne1: usize, ne2: usize) -> TensorId {
+        self.reshape(a, [ne0, ne1, ne2, 1])
+    }
+
+    fn reshape(&mut self, a: TensorId, ne: [usize; MAX_DIMS]) -> TensorId {
+        let t = self.t(a);
+        assert!(t.is_contiguous(), "reshape: источник должен быть непрерывным");
+        assert_eq!(t.nelements(), ne.iter().product::<usize>(), "reshape: число элементов не совпадает");
+        let ts = t.dtype.size();
+        let nb = [ts, ts * ne[0], ts * ne[0] * ne[1], ts * ne[0] * ne[1] * ne[2]];
+        self.new_view(a, ne, nb, Op::Reshape)
+    }
+
+    /// axes[i] — новая позиция измерения i (семантика ggml_permute).
+    pub fn permute(&mut self, a: TensorId, axes: [usize; MAX_DIMS]) -> TensorId {
+        let t = self.t(a);
+        let mut ne = [0usize; MAX_DIMS];
+        let mut nb = [0usize; MAX_DIMS];
+        for i in 0..MAX_DIMS {
+            ne[axes[i]] = t.ne[i];
+            nb[axes[i]] = t.nb[i];
+        }
+        self.new_view(a, ne, nb, Op::Permute)
+    }
+
+    pub fn transpose(&mut self, a: TensorId) -> TensorId {
+        self.permute(a, [1, 0, 2, 3])
+    }
 }
 
 #[cfg(test)]
@@ -158,5 +204,22 @@ mod tests {
     fn arena_overflow_panics() {
         let mut ctx = Context::new(16);
         let _ = ctx.new_tensor_1d(DType::F32, 1024);
+    }
+
+    #[test]
+    fn reshape_and_permute() {
+        let mut ctx = Context::new(1 << 20);
+        let a = ctx.new_tensor_2d(DType::F32, 4, 2); // 2 строки по 4
+        ctx.set_f32(a, &[0., 1., 2., 3., 4., 5., 6., 7.]);
+
+        let r = ctx.reshape_2d(a, 2, 4); // 4 строки по 2, данные общие
+        assert_eq!(ctx.t(r).ne, [2, 4, 1, 1]);
+        assert_eq!(ctx.get_f32(r, [1, 2, 0, 0]), 5.0);
+
+        let p = ctx.transpose(a); // [2,4]: p[i,j] == a[j,i]
+        assert_eq!(ctx.t(p).ne, [2, 4, 1, 1]);
+        assert!(!ctx.t(p).is_contiguous());
+        assert_eq!(ctx.get_f32(p, [1, 3, 0, 0]), 7.0); // a[3,1] = 7
+        assert_eq!(ctx.get_f32(p, [0, 2, 0, 0]), 2.0); // a[2,0] = 2
     }
 }
