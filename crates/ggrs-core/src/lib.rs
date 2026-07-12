@@ -5,9 +5,12 @@ pub mod dtype;
 pub mod op;
 pub mod tensor;
 pub mod graph;
+pub mod compute;
+mod kernels;
 
 pub use context::Context;
 pub use dtype::DType;
 pub use op::Op;
 pub use tensor::{Tensor, TensorId, MAX_DIMS, MAX_SRC};
 pub use graph::{Graph, build_forward};
+pub use compute::compute;

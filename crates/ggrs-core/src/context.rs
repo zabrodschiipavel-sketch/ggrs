@@ -177,6 +177,20 @@ impl Context {
         self.binary_op(Op::Mul, a, b)
     }
 
+    pub fn scale(&mut self, a: TensorId, s: f32) -> TensorId {
+        let dst = self.unary_op(Op::Scale, a);
+        self.t_mut(dst).op_params[0] = s.to_bits();
+        dst
+    }
+
+    pub fn silu(&mut self, a: TensorId) -> TensorId {
+        self.unary_op(Op::Silu, a)
+    }
+
+    pub fn gelu(&mut self, a: TensorId) -> TensorId {
+        self.unary_op(Op::Gelu, a)
+    }
+
     fn binary_op(&mut self, op: Op, a: TensorId, b: TensorId) -> TensorId {
         let ta = self.t(a);
         let tb = self.t(b);
@@ -189,6 +203,16 @@ impl Context {
         let d = self.t_mut(dst);
         d.op = op;
         d.src = [Some(a), Some(b), None, None];
+        dst
+    }
+
+    fn unary_op(&mut self, op: Op, a: TensorId) -> TensorId {
+        let ne = self.t(a).ne;
+        let dtype = self.t(a).dtype;
+        let dst = self.new_tensor(dtype, ne);
+        let d = self.t_mut(dst);
+        d.op = op;
+        d.src = [Some(a), None, None, None];
         dst
     }
 }
