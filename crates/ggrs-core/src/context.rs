@@ -168,6 +168,29 @@ impl Context {
     pub fn transpose(&mut self, a: TensorId) -> TensorId {
         self.permute(a, [1, 0, 2, 3])
     }
+
+    pub fn add(&mut self, a: TensorId, b: TensorId) -> TensorId {
+        self.binary_op(Op::Add, a, b)
+    }
+
+    pub fn mul(&mut self, a: TensorId, b: TensorId) -> TensorId {
+        self.binary_op(Op::Mul, a, b)
+    }
+
+    fn binary_op(&mut self, op: Op, a: TensorId, b: TensorId) -> TensorId {
+        let ta = self.t(a);
+        let tb = self.t(b);
+        // broadcast src1: по каждому измерению ne равны или у b единица
+        for i in 0..MAX_DIMS {
+            assert!(tb.ne[i] == ta.ne[i] || tb.ne[i] == 1, "binary_op: несовместимые формы");
+        }
+        let ne = ta.ne;
+        let dst = self.new_tensor(ta.dtype, ne);
+        let d = self.t_mut(dst);
+        d.op = op;
+        d.src = [Some(a), Some(b), None, None];
+        dst
+    }
 }
 
 #[cfg(test)]
