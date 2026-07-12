@@ -191,6 +191,26 @@ impl Context {
         self.unary_op(Op::Gelu, a)
     }
 
+    pub fn rope(&mut self, a: TensorId, pos: TensorId, n_dims: usize, base: f32) -> TensorId {
+        assert_eq!(self.t(pos).dtype, DType::I32);
+        assert!(n_dims.is_multiple_of(2) && n_dims <= self.t(a).ne[0]);
+        let dst = self.unary_op(Op::Rope, a);
+        let d = self.t_mut(dst);
+        d.src[1] = Some(pos);
+        d.op_params[0] = n_dims as u32;
+        d.op_params[1] = base.to_bits();
+        dst
+    }
+
+    pub fn cross_entropy_loss(&mut self, logits: TensorId, targets: TensorId) -> TensorId {
+        assert!(self.t(logits).same_shape(self.t(targets)));
+        let dst = self.new_tensor_1d(DType::F32, 1);
+        let d = self.t_mut(dst);
+        d.op = Op::CrossEntropyLoss;
+        d.src = [Some(logits), Some(targets), None, None];
+        dst
+    }
+
     pub fn get_rows(&mut self, a: TensorId, ids: TensorId) -> TensorId {
         let ta = self.t(a);
         let tids = self.t(ids);
