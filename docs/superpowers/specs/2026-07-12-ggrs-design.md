@@ -55,7 +55,8 @@ ggrs/
 
 **Ops** — только нужное для GPT, расширяем по надобности:
 `Add, Mul, MulMat, Scale, RmsNorm, Silu, Gelu, SoftMax, Rope, GetRows,
-Reshape/View/Permute/Cont, Cpy, CrossEntropyLoss`.
+Reshape/Permute/Cont, CrossEntropyLoss` (View и Cpy из ggml не нужны в Фазе 1:
+Reshape+Permute+Cont покрывают потребности GPT-графа).
 Каждая операция: `forward`-ядро + `backward` (строит градиентные узлы графа).
 
 **Граф** (порт `ggml_cgraph`): построение обходом от результата
@@ -99,7 +100,9 @@ Reshape/View/Permute/Cont, Cpy, CrossEntropyLoss`.
 
 1. Юнит-тесты операций: скаляр vs AVX2, фиксированные сиды.
 2. Gradcheck конечными разностями для каждой backward-операции.
-3. Эталонные фикстуры, посчитанные настоящим ggml, — совпадение по допуску.
+3. Эталонные фикстуры из numpy (Python 3.12 локально; у llama-turboquant нет
+   исходников ggml, только бинарники — компилировать генератор не из чего),
+   совпадение по допуску. Настоящая проверка совместимости с ggml — п.4.
 4. Интеграция: обученный GGUF работает в llama.cpp.
 5. Смоук обучения: loss на Шекспире падает ниже порога за N шагов.
 
