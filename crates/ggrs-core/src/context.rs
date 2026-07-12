@@ -155,6 +155,11 @@ impl Context {
 
     /// axes[i] — новая позиция измерения i (семантика ggml_permute).
     pub fn permute(&mut self, a: TensorId, axes: [usize; MAX_DIMS]) -> TensorId {
+        let mut seen = [false; MAX_DIMS];
+        for &ax in &axes {
+            assert!(ax < MAX_DIMS && !seen[ax], "permute: axes должны быть перестановкой 0..4");
+            seen[ax] = true;
+        }
         let t = self.t(a);
         let mut ne = [0usize; MAX_DIMS];
         let mut nb = [0usize; MAX_DIMS];

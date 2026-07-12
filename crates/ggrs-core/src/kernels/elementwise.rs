@@ -9,6 +9,7 @@ fn binary(ctx: &Context, dst_id: TensorId, ith: usize, nth: usize, kind: BinKind
     let dst = ctx.t(dst_id);
     let a = ctx.t(dst.src[0].unwrap());
     let b = ctx.t(dst.src[1].unwrap());
+    assert_eq!(dst.dtype, crate::dtype::DType::F32, "binary: только F32");
     assert_eq!(dst.nb[0], 4, "binary: dst строки должны быть плотными");
     assert_eq!(a.nb[0], 4, "binary: src0 строки должны быть плотными");
     let ne0 = dst.ne[0];
@@ -43,6 +44,7 @@ fn binary(ctx: &Context, dst_id: TensorId, ith: usize, nth: usize, kind: BinKind
 fn unary(ctx: &Context, dst_id: TensorId, ith: usize, nth: usize, f: impl Fn(f32) -> f32) {
     let dst = ctx.t(dst_id);
     let a = ctx.t(dst.src[0].unwrap());
+    assert_eq!(dst.dtype, crate::dtype::DType::F32, "unary: только F32");
     assert_eq!(dst.nb[0], 4);
     assert_eq!(a.nb[0], 4);
     let ne0 = dst.ne[0];
