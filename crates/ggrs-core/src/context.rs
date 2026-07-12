@@ -191,6 +191,28 @@ impl Context {
         self.unary_op(Op::Gelu, a)
     }
 
+    pub fn get_rows(&mut self, a: TensorId, ids: TensorId) -> TensorId {
+        let ta = self.t(a);
+        let tids = self.t(ids);
+        assert_eq!(tids.dtype, DType::I32);
+        let ne = [ta.ne[0], tids.ne[0], 1, 1];
+        let dst = self.new_tensor(DType::F32, ne);
+        let d = self.t_mut(dst);
+        d.op = Op::GetRows;
+        d.src = [Some(a), Some(ids), None, None];
+        dst
+    }
+
+    pub fn cont(&mut self, a: TensorId) -> TensorId {
+        let ne = self.t(a).ne;
+        let dtype = self.t(a).dtype;
+        let dst = self.new_tensor(dtype, ne);
+        let d = self.t_mut(dst);
+        d.op = Op::Cont;
+        d.src = [Some(a), None, None, None];
+        dst
+    }
+
     pub fn soft_max(&mut self, a: TensorId) -> TensorId {
         self.unary_op(Op::SoftMax, a)
     }

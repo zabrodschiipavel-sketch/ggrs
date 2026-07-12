@@ -1,6 +1,7 @@
 pub mod elementwise;
 pub mod mulmat;
 pub mod rows;
+pub mod copy;
 
 use crate::context::Context;
 use crate::op::Op;
@@ -17,6 +18,8 @@ pub(crate) fn dispatch(ctx: &Context, id: TensorId, ith: usize, nth: usize) {
         Op::MulMat => mulmat::mul_mat(ctx, id, ith, nth),
         Op::SoftMax => rows::soft_max(ctx, id, ith, nth),
         Op::RmsNorm => rows::rms_norm(ctx, id, ith, nth),
+        Op::GetRows => copy::get_rows(ctx, id, ith, nth),
+        Op::Cont => copy::cont(ctx, id, ith, nth),
         op => unimplemented!("ядро для {:?} ещё не реализовано", op),
     }
 }
