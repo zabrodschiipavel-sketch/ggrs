@@ -191,6 +191,16 @@ impl Context {
         self.unary_op(Op::Gelu, a)
     }
 
+    pub fn soft_max(&mut self, a: TensorId) -> TensorId {
+        self.unary_op(Op::SoftMax, a)
+    }
+
+    pub fn rms_norm(&mut self, a: TensorId, eps: f32) -> TensorId {
+        let dst = self.unary_op(Op::RmsNorm, a);
+        self.t_mut(dst).op_params[0] = eps.to_bits();
+        dst
+    }
+
     pub fn mul_mat(&mut self, a: TensorId, b: TensorId) -> TensorId {
         let ta = self.t(a);
         let tb = self.t(b);
