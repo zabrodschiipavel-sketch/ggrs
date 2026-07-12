@@ -6,6 +6,7 @@ pub mod op;
 pub mod tensor;
 pub mod graph;
 pub mod compute;
+pub mod simd;
 mod kernels;
 
 pub use context::Context;
