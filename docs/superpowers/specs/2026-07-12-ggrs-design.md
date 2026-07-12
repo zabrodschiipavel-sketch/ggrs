@@ -50,7 +50,8 @@ ggrs/
 
 **Tensor** (порт `ggml_tensor`): dtype (F32, F16, позже квантованные),
 `ne: [i64; 4]`, `nb: [usize; 4]` (страйды в байтах), `op: Op`,
-`src: [Option<TensorId>; 2]`, смещение в арене, флаг `param`.
+`src: [Option<TensorId>; 4]` (RoPE и cross-entropy требуют >2 источников;
+расширим, если понадобится), смещение в арене, флаг `param`.
 
 **Ops** — только нужное для GPT, расширяем по надобности:
 `Add, Mul, MulMat, Scale, RmsNorm, Silu, Gelu, SoftMax, Rope, GetRows,
