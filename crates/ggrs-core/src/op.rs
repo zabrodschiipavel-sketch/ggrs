@@ -23,4 +23,8 @@ pub enum Op {
     SumAllBack,
     /// Outer product: dst[ix, iy] = Σ_r x[ix, r] * y[iy, r]
     OutProd,
+    /// Обратное распространение Silu: dst[i] = g[i] * silu'(x[i])
+    SiluBack,
+    /// Обратное распространение Gelu: dst[i] = g[i] * gelu'(x[i])
+    GeluBack,
 }

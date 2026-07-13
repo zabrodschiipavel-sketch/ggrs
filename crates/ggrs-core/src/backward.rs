@@ -80,6 +80,18 @@ pub fn build_backward(ctx: &mut Context, gf: &Graph, loss: TensorId) -> Backward
                 let g_scaled = ctx.scale(g_dst, s);
                 accumulate(ctx, &mut grads, src, g_scaled);
             }
+            Op::Silu => {
+                // silu(x): ∂x += g * silu'(x)
+                let x = ctx.t(node_id).src[0].unwrap();
+                let gb = ctx.silu_back(g_dst, x);
+                accumulate(ctx, &mut grads, x, gb);
+            }
+            Op::Gelu => {
+                // gelu(x): ∂x += g * gelu'(x)
+                let x = ctx.t(node_id).src[0].unwrap();
+                let gb = ctx.gelu_back(g_dst, x);
+                accumulate(ctx, &mut grads, x, gb);
+            }
             Op::SumAll => {
                 let src = ctx.t(node_id).src[0].unwrap();
                 // ∂src += sum_all_back(g, src)

@@ -226,6 +226,38 @@ impl Context {
         self.unary_op(Op::Gelu, a)
     }
 
+    /// Обратное распространение Silu: dst[i] = g[i] * silu'(x[i]).
+    /// g и x должны быть F32, одинаковой формы.
+    /// dst — форма x, F32.
+    pub fn silu_back(&mut self, g: TensorId, x: TensorId) -> TensorId {
+        let tg = self.t(g);
+        let tx = self.t(x);
+        assert_eq!(tg.dtype, DType::F32, "silu_back: g должен быть F32");
+        assert_eq!(tx.dtype, DType::F32, "silu_back: x должен быть F32");
+        assert!(tg.same_shape(tx), "silu_back: несовпадение форм g и x");
+        let dst = self.new_tensor(DType::F32, tx.ne);
+        let d = self.t_mut(dst);
+        d.op = Op::SiluBack;
+        d.src = [Some(g), Some(x), None, None];
+        dst
+    }
+
+    /// Обратное распространение Gelu: dst[i] = g[i] * gelu'(x[i]).
+    /// g и x должны быть F32, одинаковой формы.
+    /// dst — форма x, F32.
+    pub fn gelu_back(&mut self, g: TensorId, x: TensorId) -> TensorId {
+        let tg = self.t(g);
+        let tx = self.t(x);
+        assert_eq!(tg.dtype, DType::F32, "gelu_back: g должен быть F32");
+        assert_eq!(tx.dtype, DType::F32, "gelu_back: x должен быть F32");
+        assert!(tg.same_shape(tx), "gelu_back: несовпадение форм g и x");
+        let dst = self.new_tensor(DType::F32, tx.ne);
+        let d = self.t_mut(dst);
+        d.op = Op::GeluBack;
+        d.src = [Some(g), Some(x), None, None];
+        dst
+    }
+
     pub fn rope(&mut self, a: TensorId, pos: TensorId, n_dims: usize, base: f32) -> TensorId {
         assert_eq!(self.t(pos).dtype, DType::I32);
         assert!(n_dims.is_multiple_of(2) && n_dims <= self.t(a).ne[0]);

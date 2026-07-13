@@ -18,6 +18,8 @@ pub(crate) fn dispatch(ctx: &Context, id: TensorId, ith: usize, nth: usize) {
         Op::Scale => elementwise::scale(ctx, id, ith, nth),
         Op::Silu => elementwise::silu(ctx, id, ith, nth),
         Op::Gelu => elementwise::gelu(ctx, id, ith, nth),
+        Op::SiluBack => elementwise::silu_back(ctx, id, ith, nth),
+        Op::GeluBack => elementwise::gelu_back(ctx, id, ith, nth),
         Op::MulMat => mulmat::mul_mat(ctx, id, ith, nth),
         Op::SoftMax => rows::soft_max(ctx, id, ith, nth),
         Op::RmsNorm => rows::rms_norm(ctx, id, ith, nth),
