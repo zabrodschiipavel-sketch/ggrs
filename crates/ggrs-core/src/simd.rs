@@ -46,19 +46,19 @@ pub mod avx2 {
     use std::arch::x86_64::*;
 
     #[inline]
-    unsafe fn hsum256(v: __m256) -> f32 {
+    unsafe fn hsum256(v: __m256) -> f32 { unsafe {
         let lo = _mm256_castps256_ps128(v);
         let hi = _mm256_extractf128_ps(v, 1);
         let s = _mm_add_ps(lo, hi);
         let s = _mm_hadd_ps(s, s);
         let s = _mm_hadd_ps(s, s);
         _mm_cvtss_f32(s)
-    }
+    }}
 
     /// # Safety
     /// Вызывать только при have_avx2().
     #[target_feature(enable = "avx2,fma")]
-    pub unsafe fn vec_dot(a: &[f32], b: &[f32]) -> f32 {
+    pub unsafe fn vec_dot(a: &[f32], b: &[f32]) -> f32 { unsafe {
         let n = a.len();
         let (pa, pb) = (a.as_ptr(), b.as_ptr());
         let mut acc0 = _mm256_setzero_ps();
@@ -79,12 +79,12 @@ pub mod avx2 {
             i += 1;
         }
         sum
-    }
+    }}
 
     /// # Safety
     /// Вызывать только при have_avx2().
     #[target_feature(enable = "avx2,fma")]
-    pub unsafe fn vec_add(a: &[f32], b: &[f32], d: &mut [f32]) {
+    pub unsafe fn vec_add(a: &[f32], b: &[f32], d: &mut [f32]) { unsafe {
         let n = d.len();
         let (pa, pb, pd) = (a.as_ptr(), b.as_ptr(), d.as_mut_ptr());
         let mut i = 0usize;
@@ -96,12 +96,12 @@ pub mod avx2 {
             *pd.add(i) = *pa.add(i) + *pb.add(i);
             i += 1;
         }
-    }
+    }}
 
     /// # Safety
     /// Вызывать только при have_avx2().
     #[target_feature(enable = "avx2,fma")]
-    pub unsafe fn vec_mul(a: &[f32], b: &[f32], d: &mut [f32]) {
+    pub unsafe fn vec_mul(a: &[f32], b: &[f32], d: &mut [f32]) { unsafe {
         let n = d.len();
         let (pa, pb, pd) = (a.as_ptr(), b.as_ptr(), d.as_mut_ptr());
         let mut i = 0usize;
@@ -113,12 +113,12 @@ pub mod avx2 {
             *pd.add(i) = *pa.add(i) * *pb.add(i);
             i += 1;
         }
-    }
+    }}
 
     /// # Safety
     /// Вызывать только при have_avx2().
     #[target_feature(enable = "avx2,fma")]
-    pub unsafe fn vec_scale(d: &mut [f32], s: f32) {
+    pub unsafe fn vec_scale(d: &mut [f32], s: f32) { unsafe {
         let n = d.len();
         let pd = d.as_mut_ptr();
         let vs = _mm256_set1_ps(s);
@@ -131,7 +131,7 @@ pub mod avx2 {
             *pd.add(i) *= s;
             i += 1;
         }
-    }
+    }}
 }
 
 // ---- диспетчеры ----
