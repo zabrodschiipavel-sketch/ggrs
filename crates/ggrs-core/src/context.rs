@@ -38,9 +38,10 @@ impl Context {
     }
 
     pub fn new_tensor(&mut self, dtype: DType, ne: [usize; MAX_DIMS]) -> TensorId {
-        let ts = dtype.size();
-        let nb = [ts, ts * ne[0], ts * ne[0] * ne[1], ts * ne[0] * ne[1] * ne[2]];
-        let nbytes = ts * ne.iter().product::<usize>();
+        let nb0 = dtype.type_size();
+        let nb1 = dtype.row_size(ne[0]);
+        let nb = [nb0, nb1, nb1 * ne[1], nb1 * ne[1] * ne[2]];
+        let nbytes = dtype.row_size(ne[0]) * ne[1] * ne[2] * ne[3];
         let offset = self.alloc(nbytes);
         self.push_tensor(Tensor {
             dtype, ne, nb, op: Op::None,
@@ -112,11 +113,35 @@ impl Context {
             std::slice::from_raw_parts_mut(self.base().add(t.offset) as *mut i32, t.nelements())
         }
     }
+    pub fn data_u16(&self, id: TensorId) -> &[u16] {
+        let t = self.t(id);
+        assert_eq!(t.dtype, DType::F16);
+        assert!(t.is_contiguous(), "data_u16: тензор не непрерывный");
+        unsafe {
+            std::slice::from_raw_parts(self.base().add(t.offset) as *const u16, t.nelements())
+        }
+    }
+    fn data_u16_mut(&mut self, id: TensorId) -> &mut [u16] {
+        let t = self.t(id).clone();
+        assert_eq!(t.dtype, DType::F16);
+        assert!(t.is_contiguous());
+        unsafe {
+            std::slice::from_raw_parts_mut(self.base().add(t.offset) as *mut u16, t.nelements())
+        }
+    }
     pub fn set_f32(&mut self, id: TensorId, vals: &[f32]) {
         self.data_f32_mut(id).copy_from_slice(vals);
     }
     pub fn set_i32(&mut self, id: TensorId, vals: &[i32]) {
         self.data_i32_mut(id).copy_from_slice(vals);
+    }
+    /// Запись f16 через конверсию f32→f16, поэлементно.
+    pub fn set_f16(&mut self, id: TensorId, vals: &[f32]) {
+        let buf = self.data_u16_mut(id);
+        assert_eq!(buf.len(), vals.len(), "set_f16: длина не совпадает");
+        for (dst, &src) in buf.iter_mut().zip(vals.iter()) {
+            *dst = crate::dtype::f32_to_f16(src);
+        }
     }
     /// Строковое чтение через страйды — работает и для views/permute.
     pub fn get_f32(&self, id: TensorId, idx: [usize; MAX_DIMS]) -> f32 {
@@ -151,8 +176,10 @@ impl Context {
         let t = self.t(a);
         assert!(t.is_contiguous(), "reshape: источник должен быть непрерывным");
         assert_eq!(t.nelements(), ne.iter().product::<usize>(), "reshape: число элементов не совпадает");
-        let ts = t.dtype.size();
-        let nb = [ts, ts * ne[0], ts * ne[0] * ne[1], ts * ne[0] * ne[1] * ne[2]];
+        assert!(ne[0].is_multiple_of(t.dtype.blck_size()), "reshape: ne0 не кратен блоку");
+        let ts = t.dtype.type_size();
+        let rs = t.dtype.row_size(ne[0]);
+        let nb = [ts, rs, rs * ne[1], rs * ne[1] * ne[2]];
         self.new_view(a, ne, nb, Op::Reshape)
     }
 
@@ -296,7 +323,7 @@ impl Context {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dtype::DType;
+    use crate::dtype::{DType, f16_to_f32};
 
     #[test]
     fn tensor_creation_and_strides() {
@@ -344,5 +371,34 @@ mod tests {
         assert!(!ctx.t(p).is_contiguous());
         assert_eq!(ctx.get_f32(p, [1, 3, 0, 0]), 7.0); // a[3,1] = 7
         assert_eq!(ctx.get_f32(p, [0, 2, 0, 0]), 2.0); // a[2,0] = 2
+    }
+
+    #[test]
+    fn f16_tensor_strides() {
+        let mut ctx = Context::new(1 << 20);
+        let a = ctx.new_tensor_2d(DType::F16, 4, 2);
+        let t = ctx.t(a);
+        assert_eq!(t.nb, [2, 8, 16, 16]);
+        assert_eq!(t.nbytes(), 16);
+        assert!(t.is_contiguous());
+    }
+
+    #[test]
+    fn f16_set_and_read() {
+        let mut ctx = Context::new(1 << 20);
+        let a = ctx.new_tensor_2d(DType::F16, 4, 2);
+        ctx.set_f16(a, &[1.0, -2.0, 0.5, 65504.0, 0.0, 1.5, -0.25, 3.0]);
+        let data = ctx.data_u16(a);
+        assert_eq!(data.len(), 8);
+        assert!((f16_to_f32(data[0]) - 1.0).abs() < 1e-6);
+        assert!((f16_to_f32(data[3]) - 65504.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn i32_strides_unchanged() {
+        let mut ctx = Context::new(1 << 20);
+        let a = ctx.new_tensor_2d(DType::I32, 3, 2);
+        let t = ctx.t(a);
+        assert_eq!(t.nb, [4, 12, 24, 24]);
     }
 }

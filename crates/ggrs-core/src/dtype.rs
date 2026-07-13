@@ -128,6 +128,7 @@ pub fn f16_to_f32(h: u16) -> f32 {
 
 impl DType {
     /// УСТАРЕЛО: см. type_size
+    #[deprecated(note = "используй type_size/row_size")]
     pub fn size(self) -> usize {
         match self {
             DType::F32 | DType::I32 => 4,
@@ -285,6 +286,7 @@ mod tests {
         assert_eq!(DType::F16.row_size(8), 16);
     }
 
+    #[allow(deprecated)]
     #[test]
     fn size_f16_is_two() {
         assert_eq!(DType::F16.size(), 2);

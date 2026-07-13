@@ -26,13 +26,28 @@ impl Tensor {
     pub fn nrows(&self) -> usize {
         self.ne[1] * self.ne[2] * self.ne[3]
     }
+    /// Число байт, занимаемых тензором в памяти (только для contiguous).
+    pub fn nbytes(&self) -> usize {
+        self.dtype.row_size(self.ne[0]) * self.ne[1] * self.ne[2] * self.ne[3]
+    }
     pub fn is_contiguous(&self) -> bool {
-        let mut expected = self.dtype.size();
-        for i in 0..MAX_DIMS {
-            if self.ne[i] != 1 && self.nb[i] != expected {
-                return false;
-            }
-            expected *= self.ne[i];
+        let ts = self.dtype.type_size();
+        let rs = self.dtype.row_size(self.ne[0]);
+        // nb[0] == type_size (если ne[0] != 1)
+        if self.ne[0] != 1 && self.nb[0] != ts {
+            return false;
+        }
+        // nb[1] == row_size(ne[0]) (если ne[1] != 1)
+        if self.ne[1] != 1 && self.nb[1] != rs {
+            return false;
+        }
+        // nb[2] == nb[1] * ne[1] (если ne[2] != 1)
+        if self.ne[2] != 1 && self.nb[2] != rs * self.ne[1] {
+            return false;
+        }
+        // nb[3] == nb[2] * ne[2] (если ne[3] != 1)
+        if self.ne[3] != 1 && self.nb[3] != rs * self.ne[1] * self.ne[2] {
+            return false;
         }
         true
     }
