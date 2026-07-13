@@ -14,6 +14,8 @@
 | [bitnet.cpp](https://github.com/microsoft/BitNet) | C++ | ❌ только inference тернарных моделей | Да, быстрый | Подтверждает: низкобитный CPU-**inference** занят Microsoft, **обучение** — нет |
 | [QuEST](https://github.com/IST-DASLab/QuEST) | PyTorch (+CUDA/Triton) | ✅ квант-обучение (Адамар + trust estimator), конфиги ~213M Llama-стиля | Только pytorch-fallback для базовых операций | **Оракул для Фазы 7**: реализация квантователей и trust-градиентов, с которой сверяем наш backward (как numpy для forward) |
 | [modded-nanogpt](https://github.com/kellerjordan/modded-nanogpt) | PyTorch | Спидран GPT-2 | ❌ 8×H100 | Формат лидерборда и трюки — заимствуем; CPU-версии нет |
+| llm.c-порты на Rust: [ToJen/llm.rs](https://github.com/ToJen/llm.rs), [Steboss/llm.rust](https://github.com/Steboss/llm.rust), [yijunyu/llm.rs](https://github.com/yijunyu/llm.rs) (c2rust), [wassemgtk/llm-training-rust](https://github.com/wassemgtk/llm-training-rust) | Rust | Порт train_gpt2.c | fp32, по описаниям не оптимизированы (⚠️ проверить при бенчмарке) | **Ближайший prior art по «Rust CPU training»**: базовые порты без квантов/GGUF/оптимизаторов. Взять как бейзлайны в бенчмарк Фазы 6 рядом с llm.c |
+| torch.optim.Muon (PyTorch 2.12) | PyTorch | Оптимизатор в стандартной библиотеке | Технически есть, неэффективен | Muon стал мейнстримом; Rust/CPU-эффективной реализации по-прежнему нет |
 
 ## Что это меняет
 
