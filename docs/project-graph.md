@@ -19,7 +19,7 @@ flowchart TB
         kernels --> fixtures
     end
 
-    subgraph P2["Фаза 2 — обучение ⬜"]
+    subgraph P2["Фаза 2 — обучение ✅ (2026-07-13): autograd+gradcheck, OutProd, AdamW+warmdown33, ВЕХА мини-LM 2.02→0.00"]
         outprod["🔴 OUT_PROD op<br/>(∇W у MulMat — найдено ревью F4)"]
         backward["build_backward_expand<br/>+ backward каждой op"]
         gradcheck["Gradcheck конечными<br/>разностями (test-grad0)"]
