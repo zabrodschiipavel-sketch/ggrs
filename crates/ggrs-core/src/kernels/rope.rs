@@ -1,10 +1,13 @@
+use crate::dtype::DType;
+
 pub fn rope(ctx: &crate::context::Context, dst_id: crate::tensor::TensorId, ith: usize, nth: usize) {
     let dst = ctx.t(dst_id);
     let a = ctx.t(dst.src[0].unwrap());
     let pos = ctx.data_i32(dst.src[1].unwrap());
     let n_dims = dst.op_params[0] as usize;
     let base = f32::from_bits(dst.op_params[1]);
-    assert_eq!(a.nb[0], 4);
+    assert_eq!(dst.dtype, DType::F32, "rope: только F32");
+    assert_eq!(a.nb[0], a.dtype.type_size(), "rope: src0 строки должны быть плотными");
     let ne0 = dst.ne[0];
     let (ir0, ir1) = super::split(dst.nrows(), ith, nth);
     for ir in ir0..ir1 {

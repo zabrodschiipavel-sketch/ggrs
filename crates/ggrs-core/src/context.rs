@@ -268,6 +268,17 @@ impl Context {
         dst
     }
 
+    /// cont_f32: сделать непрерывную f32-копию тензора (работает и для F16-источников).
+    /// dst всегда DType::F32.
+    pub fn cont_f32(&mut self, a: TensorId) -> TensorId {
+        let ne = self.t(a).ne;
+        let dst = self.new_tensor(DType::F32, ne);
+        let d = self.t_mut(dst);
+        d.op = Op::Cont;
+        d.src = [Some(a), None, None, None];
+        dst
+    }
+
     pub fn soft_max(&mut self, a: TensorId) -> TensorId {
         self.unary_op(Op::SoftMax, a)
     }
