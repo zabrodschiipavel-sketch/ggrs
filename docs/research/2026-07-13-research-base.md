@@ -18,10 +18,14 @@
   ([promptquorum](https://www.promptquorum.com/local-llms/best-cpu-only-llm),
   [itsfoss](https://itsfoss.com/testing-local-llms-without-gpu/),
   [promptinjection](https://www.promptinjection.net/p/can-you-train-an-ai-llm-on-cpu-only)).
-- 📚 llama.cpp удалил train-from-scratch/finetune из основной ветки (PR #8669) —
-  в главной CPU-экосистеме обучения просто нет.
-- **Вывод: ниша «настоящий тренировочный движок для CPU» пуста.** Конкурентов нет;
-  есть только вопрос честных ожиданий по скорости.
+- 📚 llama.cpp удалил train-from-scratch/finetune из основной ветки (PR #8669);
+  ✅ уточнение третьей фазы (DeepWiki по master 2026): базовый файнтюн ВЕРНУЛСЯ
+  через ggml-opt (llama_opt_init/epoch, AdamW/SGD, `llama-finetune`), но без
+  обучаемых embeddings (FIXME), претрейна и телеметрии — см.
+  [oss-landscape](2026-07-13-oss-landscape.md).
+- **Вывод: ниша «настоящий тренировочный движок для CPU» практически пуста** —
+  есть учебный llm.c (сам Карпаты: CPU-путь 6× медленнее PyTorch CPU, «демо») и
+  зачаточный файнтюн llama.cpp; полного претрейн-движка нет.
 
 ## 2. Обучение в квантованном пространстве
 
