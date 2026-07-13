@@ -6,6 +6,8 @@ pub fn rope(ctx: &crate::context::Context, dst_id: crate::tensor::TensorId, ith:
     let pos = ctx.data_i32(dst.src[1].unwrap());
     let n_dims = dst.op_params[0] as usize;
     let base = f32::from_bits(dst.op_params[1]);
+    // op_params[2]: 0 = forward, 1 = backward (транспонированное вращение)
+    let backward = dst.op_params[2] != 0;
     assert_eq!(dst.dtype, DType::F32, "rope: только F32");
     assert_eq!(a.nb[0], a.dtype.type_size(), "rope: src0 строки должны быть плотными");
     let ne0 = dst.ne[0];
@@ -19,6 +21,8 @@ pub fn rope(ctx: &crate::context::Context, dst_id: crate::tensor::TensorId, ith:
             for i in 0..n_dims / 2 {
                 let theta = p * base.powf(-2.0 * i as f32 / n_dims as f32);
                 let (sin_t, cos_t) = theta.sin_cos();
+                // backward: используем -sin_t (транспонированное вращение)
+                let sin_t = if backward { -sin_t } else { sin_t };
                 let x0 = *pa.add(2 * i);
                 let x1 = *pa.add(2 * i + 1);
                 *pd.add(2 * i) = x0 * cos_t - x1 * sin_t;

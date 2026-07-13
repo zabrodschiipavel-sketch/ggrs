@@ -183,7 +183,15 @@ impl Context {
         self.new_view(a, ne, nb, Op::Reshape)
     }
 
+    /// Изменить форму `a` в форму `like` (Reshape-like view).
+    /// `like` должен быть contiguous (иметь стандартные страйды).
+    pub fn reshape_like(&mut self, a: TensorId, like: TensorId) -> TensorId {
+        let ne = self.t(like).ne;
+        self.reshape(a, ne)
+    }
+
     /// axes[i] — новая позиция измерения i (семантика ggml_permute).
+    /// Сохраняет axes в op_params[0..4] для использования в backward.
     pub fn permute(&mut self, a: TensorId, axes: [usize; MAX_DIMS]) -> TensorId {
         let mut seen = [false; MAX_DIMS];
         for &ax in &axes {
@@ -197,7 +205,12 @@ impl Context {
             ne[axes[i]] = t.ne[i];
             nb[axes[i]] = t.nb[i];
         }
-        self.new_view(a, ne, nb, Op::Permute)
+        let dst = self.new_view(a, ne, nb, Op::Permute);
+        let d = self.t_mut(dst);
+        for (i, &ax) in axes.iter().enumerate() {
+            d.op_params[i] = ax as u32;
+        }
+        dst
     }
 
     pub fn transpose(&mut self, a: TensorId) -> TensorId {
@@ -266,6 +279,52 @@ impl Context {
         d.src[1] = Some(pos);
         d.op_params[0] = n_dims as u32;
         d.op_params[1] = base.to_bits();
+        // op_params[2] = 0: forward
+        dst
+    }
+
+    /// Обратное распространение Rope: транспонированное вращение.
+    /// Как rope, но op_params[2]=1 (backward).
+    pub fn rope_back(&mut self, g: TensorId, pos: TensorId, n_dims: usize, base: f32) -> TensorId {
+        assert_eq!(self.t(pos).dtype, DType::I32);
+        assert!(n_dims.is_multiple_of(2) && n_dims <= self.t(g).ne[0]);
+        let dst = self.unary_op(Op::Rope, g);
+        let d = self.t_mut(dst);
+        d.src[1] = Some(pos);
+        d.op_params[0] = n_dims as u32;
+        d.op_params[1] = base.to_bits();
+        d.op_params[2] = 1; // backward
+        dst
+    }
+
+    /// Обратное распространение SoftMax.
+    /// y = ВЫХОД softmax forward; dst формы y; src[0]=g, src[1]=y.
+    pub fn soft_max_back(&mut self, g: TensorId, y: TensorId) -> TensorId {
+        let tg = self.t(g);
+        let ty = self.t(y);
+        assert_eq!(tg.dtype, DType::F32, "soft_max_back: g должен быть F32");
+        assert_eq!(ty.dtype, DType::F32, "soft_max_back: y должен быть F32");
+        assert!(tg.same_shape(ty), "soft_max_back: несовпадение форм g и y");
+        let dst = self.new_tensor(DType::F32, ty.ne);
+        let d = self.t_mut(dst);
+        d.op = Op::SoftMaxBack;
+        d.src = [Some(g), Some(y), None, None];
+        dst
+    }
+
+    /// Обратное распространение RmsNorm.
+    /// x = ВХОД rms_norm; op_params[0]=eps.to_bits(); src[0]=g, src[1]=x.
+    pub fn rms_norm_back(&mut self, g: TensorId, x: TensorId, eps: f32) -> TensorId {
+        let tg = self.t(g);
+        let tx = self.t(x);
+        assert_eq!(tg.dtype, DType::F32, "rms_norm_back: g должен быть F32");
+        assert_eq!(tx.dtype, DType::F32, "rms_norm_back: x должен быть F32");
+        assert!(tg.same_shape(tx), "rms_norm_back: несовпадение форм g и x");
+        let dst = self.new_tensor(DType::F32, tx.ne);
+        let d = self.t_mut(dst);
+        d.op = Op::RmsNormBack;
+        d.src = [Some(g), Some(x), None, None];
+        d.op_params[0] = eps.to_bits();
         dst
     }
 
@@ -561,5 +620,17 @@ mod tests {
         let a = ctx.new_tensor_2d(DType::I32, 3, 2);
         let t = ctx.t(a);
         assert_eq!(t.nb, [4, 12, 24, 24]);
+    }
+
+    #[test]
+    fn permute_saves_op_params() {
+        let mut ctx = Context::new(1 << 20);
+        let a = ctx.new_tensor_2d(DType::F32, 4, 3);
+        let p = ctx.permute(a, [1, 0, 2, 3]);
+        let params = ctx.t(p).op_params;
+        assert_eq!(params[0], 1);
+        assert_eq!(params[1], 0);
+        assert_eq!(params[2], 2);
+        assert_eq!(params[3], 3);
     }
 }

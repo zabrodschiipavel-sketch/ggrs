@@ -32,4 +32,10 @@ pub enum Op {
     /// Обратное распространение GetRows: аккумуляция градиентов в embedding-таблицу.
     /// dst (форма table) — градиент таблицы; src[0]=g, src[1]=ids, src[2]=table (для формы).
     GetRowsBack,
+    /// Обратное распространение SoftMax: dst[i] = y[i] * (g[i] − Σ_i g[i]*y[i]).
+    /// src[0]=g (градиент выхода), src[1]=y (выход softmax forward).
+    SoftMaxBack,
+    /// Обратное распространение RmsNorm: dst = r*g − x * r³ * dot / ne0.
+    /// src[0]=g, src[1]=x (вход rms_norm); op_params[0]=eps.to_bits().
+    RmsNormBack,
 }

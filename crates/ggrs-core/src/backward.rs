@@ -132,6 +132,61 @@ pub fn build_backward(ctx: &mut Context, gf: &Graph, loss: TensorId) -> Backward
                 accumulate(ctx, &mut grads, table, gt);
                 // ids градиента не имеют
             }
+            Op::SoftMax => {
+                // softmax(x): ∂x += soft_max_back(g, y), где y = ВЫХОД softmax (= сам узел)
+                let y = node_id; // выход softmax — это сам узел
+                let x = ctx.t(node_id).src[0].unwrap();
+                let gx = ctx.soft_max_back(g_dst, y);
+                accumulate(ctx, &mut grads, x, gx);
+            }
+            Op::RmsNorm => {
+                // rms_norm(x): ∂x += rms_norm_back(g, x, eps)
+                let x = ctx.t(node_id).src[0].unwrap();
+                let eps = f32::from_bits(ctx.t(node_id).op_params[0]);
+                let gx = ctx.rms_norm_back(g_dst, x, eps);
+                accumulate(ctx, &mut grads, x, gx);
+            }
+            Op::Rope => {
+                // rope(x, pos): ∂x += rope_back(g, pos, n_dims, base)
+                let x = ctx.t(node_id).src[0].unwrap();
+                let pos = ctx.t(node_id).src[1].unwrap();
+                let n_dims = ctx.t(node_id).op_params[0] as usize;
+                let base = f32::from_bits(ctx.t(node_id).op_params[1]);
+                assert!(ctx.t(node_id).op_params[2] == 0,
+                    "backward для rope_back не поддержан");
+                let gx = ctx.rope_back(g_dst, pos, n_dims, base);
+                accumulate(ctx, &mut grads, x, gx);
+            }
+            Op::Reshape => {
+                // reshape(a, ne): g_a = reshape_like(g_dst, a)
+                let x = ctx.t(node_id).src[0].unwrap();
+                let gx = ctx.reshape_like(g_dst, x);
+                accumulate(ctx, &mut grads, x, gx);
+            }
+            Op::Permute => {
+                // permute(a, axes): g_a = cont(permute(g_dst, inv_axes))
+                let x = ctx.t(node_id).src[0].unwrap();
+                let axes = [
+                    ctx.t(node_id).op_params[0] as usize,
+                    ctx.t(node_id).op_params[1] as usize,
+                    ctx.t(node_id).op_params[2] as usize,
+                    ctx.t(node_id).op_params[3] as usize,
+                ];
+                // inverse: inv[axes[i]] = i
+                let mut inv = [0usize; 4];
+                for i in 0..4 {
+                    inv[axes[i]] = i;
+                }
+                let gp = ctx.permute(g_dst, inv);
+                let gx = ctx.cont(gp);
+                accumulate(ctx, &mut grads, x, gx);
+            }
+            Op::Cont => {
+                // cont(a): g_a = g_dst (форма совпадает).
+                // Если a не-contiguous, g_dst всё равно имеет ту же ne — pass-through.
+                let x = ctx.t(node_id).src[0].unwrap();
+                accumulate(ctx, &mut grads, x, g_dst);
+            }
             _ => {
                 // Любой другой op с ненулевым grads[dst] — паника (задача T3+)
                 if grads.contains_key(&node_id) {
