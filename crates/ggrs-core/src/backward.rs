@@ -117,6 +117,13 @@ pub fn build_backward(ctx: &mut Context, gf: &Graph, loss: TensorId) -> Backward
                 let gb = ctx.mul_mat(atc, g_dst);
                 accumulate(ctx, &mut grads, b, gb);
             }
+            Op::CrossEntropyLoss => {
+                let logits = ctx.t(node_id).src[0].unwrap();
+                let targets = ctx.t(node_id).src[1].unwrap();
+                let gl = ctx.cross_entropy_loss_back(g_dst, logits, targets);
+                accumulate(ctx, &mut grads, logits, gl);
+                // targets не получают градиент
+            }
             _ => {
                 // Любой другой op с ненулевым grads[dst] — паника (задача T3+)
                 if grads.contains_key(&node_id) {

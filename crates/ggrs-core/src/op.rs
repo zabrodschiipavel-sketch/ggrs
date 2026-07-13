@@ -27,4 +27,6 @@ pub enum Op {
     SiluBack,
     /// Обратное распространение Gelu: dst[i] = g[i] * gelu'(x[i])
     GeluBack,
+    /// Обратное распространение CrossEntropyLoss: dst = (softmax(logits) - targets) * g0 / nrows
+    CrossEntropyLossBack,
 }

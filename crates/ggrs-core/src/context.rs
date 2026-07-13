@@ -278,6 +278,26 @@ impl Context {
         dst
     }
 
+    /// Обратное распространение CrossEntropyLoss.
+    /// g — градиент лосса (форма [1], F32).
+    /// logits, targets — F32, одинаковой формы.
+    /// dst — форма logits, F32: dst = (softmax(logits) - targets) * g0 / nrows.
+    pub fn cross_entropy_loss_back(&mut self, g: TensorId, logits: TensorId, targets: TensorId) -> TensorId {
+        let tg = self.t(g);
+        let tlogits = self.t(logits);
+        let ttargets = self.t(targets);
+        assert_eq!(tg.dtype, DType::F32, "cross_entropy_loss_back: g должен быть F32");
+        assert_eq!(tlogits.dtype, DType::F32, "cross_entropy_loss_back: logits должен быть F32");
+        assert_eq!(ttargets.dtype, DType::F32, "cross_entropy_loss_back: targets должен быть F32");
+        assert!(tlogits.same_shape(ttargets), "cross_entropy_loss_back: несовпадение форм logits и targets");
+        assert_eq!(tg.nelements(), 1, "cross_entropy_loss_back: g должен быть скаляром [1]");
+        let dst = self.new_tensor(DType::F32, tlogits.ne);
+        let d = self.t_mut(dst);
+        d.op = Op::CrossEntropyLossBack;
+        d.src = [Some(g), Some(logits), Some(targets), None];
+        dst
+    }
+
     pub fn get_rows(&mut self, a: TensorId, ids: TensorId) -> TensorId {
         let ta = self.t(a);
         let tids = self.t(ids);
