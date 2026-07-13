@@ -4,6 +4,7 @@ pub mod rows;
 pub mod copy;
 pub mod rope;
 pub mod loss;
+pub mod outprod;
 
 use crate::context::Context;
 use crate::op::Op;
@@ -26,6 +27,7 @@ pub(crate) fn dispatch(ctx: &Context, id: TensorId, ith: usize, nth: usize) {
         Op::CrossEntropyLoss => loss::cross_entropy_loss(ctx, id, ith, nth),
         Op::SumAll => rows::sum_all(ctx, id, ith, nth),
         Op::SumAllBack => rows::sum_all_back(ctx, id, ith, nth),
+        Op::OutProd => outprod::out_prod(ctx, id, ith, nth),
     }
 }
 

@@ -21,4 +21,6 @@ pub enum Op {
     SumAll,
     /// Обратное распространение SumAll: заполняет тензор формы like значением g[0].
     SumAllBack,
+    /// Outer product: dst[ix, iy] = Σ_r x[ix, r] * y[iy, r]
+    OutProd,
 }
