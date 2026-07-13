@@ -199,7 +199,7 @@ pub fn build_backward(ctx: &mut Context, gf: &Graph, loss: TensorId) -> Backward
     // Собираем градиенты всех is_param узлов.
     let param_grads: Vec<TensorId> = grads
         .iter()
-        .filter(|(&id, _)| ctx.t(id).is_param)
+        .filter(|&(&id, _)| ctx.t(id).is_param)
         .map(|(_, &g)| g)
         .collect();
 

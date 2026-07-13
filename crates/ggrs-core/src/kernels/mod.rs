@@ -44,9 +44,9 @@ pub(crate) fn split(n: usize, ith: usize, nth: usize) -> (usize, usize) {
 }
 
 /// Указатель на строку (i1,i2,i3) тензора.
-pub(crate) unsafe fn row_ptr(ctx: &Context, t: &Tensor, i1: usize, i2: usize, i3: usize) -> *mut u8 {
+pub(crate) unsafe fn row_ptr(ctx: &Context, t: &Tensor, i1: usize, i2: usize, i3: usize) -> *mut u8 { unsafe {
     ctx.base().add(t.offset + i1 * t.nb[1] + i2 * t.nb[2] + i3 * t.nb[3])
-}
+}}
 
 /// Разложить плоский индекс строки в (i1,i2,i3) по ne тензора.
 pub(crate) fn unravel_row(t: &Tensor, ir: usize) -> (usize, usize, usize) {

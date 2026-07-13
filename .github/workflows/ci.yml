@@ -1,0 +1,21 @@
+name: CI
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Тесты
+        run: cargo test -p ggrs-core
+      - name: Clippy (строгий)
+        run: cargo clippy -p ggrs-core --tests -- -D warnings

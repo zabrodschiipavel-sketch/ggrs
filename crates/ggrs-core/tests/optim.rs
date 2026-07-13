@@ -166,6 +166,53 @@ fn adamw_clip() {
 }
 
 #[test]
+fn adamw_weight_decay() {
+    let mut ctx = Context::new(1 << 20);
+
+    // Параметр [1.0, -2.0]
+    let param = ctx.new_tensor_1d(DType::F32, 2);
+    ctx.set_f32(param, &[1.0, -2.0]);
+
+    // Нулевой градиент [0.0, 0.0] — изолирует wd-член
+    let grad = make_grad(&mut ctx, 2, &[0.0, 0.0]);
+
+    let mut grads_map = HashMap::new();
+    grads_map.insert(param, grad);
+    let backward = Backward {
+        grads: grads_map,
+        root: grad,
+    };
+
+    let mut opt = AdamW::new(&[param], &ctx, 0.1);
+    opt.wd = 0.1;
+    opt.clip_global_norm = 0.0; // клиппинг выключен
+
+    let (norm, nan) = opt.step(&mut ctx, &backward);
+
+    assert!(!nan, "NaN не должен быть при нулевом градиенте");
+    assert!((norm - 0.0).abs() < 1e-6, "норма должна быть 0.0, got {}", norm);
+
+    // При нулевом градиенте: m=0, v=0 → m_hat=0, v_hat=0
+    // update = lr * (0/(sqrt(0)+eps) + wd * p) = lr * wd * p
+    //        = 0.1 * 0.1 * p = 0.01 * p
+    // p -= 0.01 * p → p *= (1 - 0.01) = 0.99
+    // p[0] = 1.0 * 0.99 = 0.99
+    // p[1] = -2.0 * 0.99 = -1.98
+
+    let result = ctx.data_f32(param);
+    let expected = [0.99_f32, -1.98_f32];
+    for i in 0..2 {
+        assert!(
+            (result[i] - expected[i]).abs() < 1e-6,
+            "param[{}]: got {}, expected {}",
+            i,
+            result[i],
+            expected[i]
+        );
+    }
+}
+
+#[test]
 fn lr_schedule_shape() {
     let sched = LrSchedule {
         base: 1.0,

@@ -8,18 +8,18 @@ use crate::kernels;
 use crate::op::Op;
 
 pub fn compute(ctx: &Context, graph: &Graph, n_threads: usize) {
-    // Профилирование по env GGRS_PROFILE=1
-    if let Ok(val) = std::env::var("GGRS_PROFILE") {
-        if val == "1" {
-            let timings = compute_profiled(ctx, graph, n_threads);
-            let total_ms: f64 = timings.iter().map(|(_, _, ms)| ms).sum();
-            eprintln!("{:12} {:>5} {:>10} {:>8}", "Op", "calls", "ms", "%");
-            for (op, calls, ms) in &timings {
-                let pct = if total_ms > 0.0 { ms / total_ms * 100.0 } else { 0.0 };
-                eprintln!("{:12} {:>5} {:>10.3} {:>7.2}%", format!("{:?}", op), calls, ms, pct);
-            }
-            return;
+    // Профилирование по env GGRS_PROFILE=1 (let-chain — edition 2024)
+    if let Ok(val) = std::env::var("GGRS_PROFILE")
+        && val == "1"
+    {
+        let timings = compute_profiled(ctx, graph, n_threads);
+        let total_ms: f64 = timings.iter().map(|(_, _, ms)| ms).sum();
+        eprintln!("{:12} {:>5} {:>10} {:>8}", "Op", "calls", "ms", "%");
+        for (op, calls, ms) in &timings {
+            let pct = if total_ms > 0.0 { ms / total_ms * 100.0 } else { 0.0 };
+            eprintln!("{:12} {:>5} {:>10.3} {:>7.2}%", format!("{:?}", op), calls, ms, pct);
         }
+        return;
     }
 
     assert!(n_threads >= 1);
