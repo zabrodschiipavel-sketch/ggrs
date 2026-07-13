@@ -1,4 +1,5 @@
 use crate::context::Context;
+use crate::dtype::DType;
 use crate::tensor::TensorId;
 use super::row_ptr;
 
@@ -10,8 +11,11 @@ pub fn cross_entropy_loss(ctx: &Context, dst_id: TensorId, ith: usize, _nth: usi
     let dst = ctx.t(dst_id);
     let logits = ctx.t(dst.src[0].unwrap());
     let targets = ctx.t(dst.src[1].unwrap());
-    assert_eq!(logits.nb[0], 4);
-    assert_eq!(targets.nb[0], 4);
+    assert_eq!(dst.dtype, DType::F32, "cross_entropy_loss: dst только F32");
+    assert_eq!(logits.dtype, DType::F32, "cross_entropy_loss: logits только F32");
+    assert_eq!(targets.dtype, DType::F32, "cross_entropy_loss: targets только F32");
+    assert_eq!(logits.nb[0], logits.dtype.type_size(), "cross_entropy_loss: logits строки должны быть плотными");
+    assert_eq!(targets.nb[0], targets.dtype.type_size(), "cross_entropy_loss: targets строки должны быть плотными");
     let ne0 = logits.ne[0];
     let nrows = logits.nrows();
     let mut total = 0.0f64;

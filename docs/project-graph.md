@@ -5,7 +5,7 @@
 
 ```mermaid
 flowchart TB
-    subgraph P1["Фаза 1 — ядро ✅ (второй круг 🔄)"]
+    subgraph P1["Фаза 1 — ядро ✅ (2-й круг ✅, ретрофит 1.5 ✅: traits/F16/телеметрия)"]
         arena["Context/арена + TensorId ✅<br/>🔄 F1: выравнивание u64<br/>🔄 F6: checked_add"]
         tensor["Tensor ne/nb + views ✅<br/>reshape/permute/transpose"]
         graph_["Граф build_forward ✅<br/>🔄 F6: итеративный DFS"]
