@@ -183,7 +183,15 @@ impl Context {
         self.new_view(a, ne, nb, Op::Reshape)
     }
 
+    /// Изменить форму `a` в форму `like` (Reshape-like view).
+    /// `like` должен быть contiguous (иметь стандартные страйды).
+    pub fn reshape_like(&mut self, a: TensorId, like: TensorId) -> TensorId {
+        let ne = self.t(like).ne;
+        self.reshape(a, ne)
+    }
+
     /// axes[i] — новая позиция измерения i (семантика ggml_permute).
+    /// Сохраняет axes в op_params[0..4] для использования в backward.
     pub fn permute(&mut self, a: TensorId, axes: [usize; MAX_DIMS]) -> TensorId {
         let mut seen = [false; MAX_DIMS];
         for &ax in &axes {
@@ -197,7 +205,12 @@ impl Context {
             ne[axes[i]] = t.ne[i];
             nb[axes[i]] = t.nb[i];
         }
-        self.new_view(a, ne, nb, Op::Permute)
+        let dst = self.new_view(a, ne, nb, Op::Permute);
+        let d = self.t_mut(dst);
+        for (i, &ax) in axes.iter().enumerate() {
+            d.op_params[i] = ax as u32;
+        }
+        dst
     }
 
     pub fn transpose(&mut self, a: TensorId) -> TensorId {
@@ -226,6 +239,38 @@ impl Context {
         self.unary_op(Op::Gelu, a)
     }
 
+    /// Обратное распространение Silu: dst[i] = g[i] * silu'(x[i]).
+    /// g и x должны быть F32, одинаковой формы.
+    /// dst — форма x, F32.
+    pub fn silu_back(&mut self, g: TensorId, x: TensorId) -> TensorId {
+        let tg = self.t(g);
+        let tx = self.t(x);
+        assert_eq!(tg.dtype, DType::F32, "silu_back: g должен быть F32");
+        assert_eq!(tx.dtype, DType::F32, "silu_back: x должен быть F32");
+        assert!(tg.same_shape(tx), "silu_back: несовпадение форм g и x");
+        let dst = self.new_tensor(DType::F32, tx.ne);
+        let d = self.t_mut(dst);
+        d.op = Op::SiluBack;
+        d.src = [Some(g), Some(x), None, None];
+        dst
+    }
+
+    /// Обратное распространение Gelu: dst[i] = g[i] * gelu'(x[i]).
+    /// g и x должны быть F32, одинаковой формы.
+    /// dst — форма x, F32.
+    pub fn gelu_back(&mut self, g: TensorId, x: TensorId) -> TensorId {
+        let tg = self.t(g);
+        let tx = self.t(x);
+        assert_eq!(tg.dtype, DType::F32, "gelu_back: g должен быть F32");
+        assert_eq!(tx.dtype, DType::F32, "gelu_back: x должен быть F32");
+        assert!(tg.same_shape(tx), "gelu_back: несовпадение форм g и x");
+        let dst = self.new_tensor(DType::F32, tx.ne);
+        let d = self.t_mut(dst);
+        d.op = Op::GeluBack;
+        d.src = [Some(g), Some(x), None, None];
+        dst
+    }
+
     pub fn rope(&mut self, a: TensorId, pos: TensorId, n_dims: usize, base: f32) -> TensorId {
         assert_eq!(self.t(pos).dtype, DType::I32);
         assert!(n_dims.is_multiple_of(2) && n_dims <= self.t(a).ne[0]);
@@ -234,6 +279,52 @@ impl Context {
         d.src[1] = Some(pos);
         d.op_params[0] = n_dims as u32;
         d.op_params[1] = base.to_bits();
+        // op_params[2] = 0: forward
+        dst
+    }
+
+    /// Обратное распространение Rope: транспонированное вращение.
+    /// Как rope, но op_params[2]=1 (backward).
+    pub fn rope_back(&mut self, g: TensorId, pos: TensorId, n_dims: usize, base: f32) -> TensorId {
+        assert_eq!(self.t(pos).dtype, DType::I32);
+        assert!(n_dims.is_multiple_of(2) && n_dims <= self.t(g).ne[0]);
+        let dst = self.unary_op(Op::Rope, g);
+        let d = self.t_mut(dst);
+        d.src[1] = Some(pos);
+        d.op_params[0] = n_dims as u32;
+        d.op_params[1] = base.to_bits();
+        d.op_params[2] = 1; // backward
+        dst
+    }
+
+    /// Обратное распространение SoftMax.
+    /// y = ВЫХОД softmax forward; dst формы y; src[0]=g, src[1]=y.
+    pub fn soft_max_back(&mut self, g: TensorId, y: TensorId) -> TensorId {
+        let tg = self.t(g);
+        let ty = self.t(y);
+        assert_eq!(tg.dtype, DType::F32, "soft_max_back: g должен быть F32");
+        assert_eq!(ty.dtype, DType::F32, "soft_max_back: y должен быть F32");
+        assert!(tg.same_shape(ty), "soft_max_back: несовпадение форм g и y");
+        let dst = self.new_tensor(DType::F32, ty.ne);
+        let d = self.t_mut(dst);
+        d.op = Op::SoftMaxBack;
+        d.src = [Some(g), Some(y), None, None];
+        dst
+    }
+
+    /// Обратное распространение RmsNorm.
+    /// x = ВХОД rms_norm; op_params[0]=eps.to_bits(); src[0]=g, src[1]=x.
+    pub fn rms_norm_back(&mut self, g: TensorId, x: TensorId, eps: f32) -> TensorId {
+        let tg = self.t(g);
+        let tx = self.t(x);
+        assert_eq!(tg.dtype, DType::F32, "rms_norm_back: g должен быть F32");
+        assert_eq!(tx.dtype, DType::F32, "rms_norm_back: x должен быть F32");
+        assert!(tg.same_shape(tx), "rms_norm_back: несовпадение форм g и x");
+        let dst = self.new_tensor(DType::F32, tx.ne);
+        let d = self.t_mut(dst);
+        d.op = Op::RmsNormBack;
+        d.src = [Some(g), Some(x), None, None];
+        d.op_params[0] = eps.to_bits();
         dst
     }
 
@@ -246,6 +337,26 @@ impl Context {
         dst
     }
 
+    /// Обратное распространение CrossEntropyLoss.
+    /// g — градиент лосса (форма [1], F32).
+    /// logits, targets — F32, одинаковой формы.
+    /// dst — форма logits, F32: dst = (softmax(logits) - targets) * g0 / nrows.
+    pub fn cross_entropy_loss_back(&mut self, g: TensorId, logits: TensorId, targets: TensorId) -> TensorId {
+        let tg = self.t(g);
+        let tlogits = self.t(logits);
+        let ttargets = self.t(targets);
+        assert_eq!(tg.dtype, DType::F32, "cross_entropy_loss_back: g должен быть F32");
+        assert_eq!(tlogits.dtype, DType::F32, "cross_entropy_loss_back: logits должен быть F32");
+        assert_eq!(ttargets.dtype, DType::F32, "cross_entropy_loss_back: targets должен быть F32");
+        assert!(tlogits.same_shape(ttargets), "cross_entropy_loss_back: несовпадение форм logits и targets");
+        assert_eq!(tg.nelements(), 1, "cross_entropy_loss_back: g должен быть скаляром [1]");
+        let dst = self.new_tensor(DType::F32, tlogits.ne);
+        let d = self.t_mut(dst);
+        d.op = Op::CrossEntropyLossBack;
+        d.src = [Some(g), Some(logits), Some(targets), None];
+        dst
+    }
+
     pub fn get_rows(&mut self, a: TensorId, ids: TensorId) -> TensorId {
         let ta = self.t(a);
         let tids = self.t(ids);
@@ -255,6 +366,30 @@ impl Context {
         let d = self.t_mut(dst);
         d.op = Op::GetRows;
         d.src = [Some(a), Some(ids), None, None];
+        dst
+    }
+
+    /// Обратное распространение GetRows: аккумуляция градиентов в embedding-таблицу.
+    /// g — градиент выхода get_rows (форма [E, T], F32).
+    /// ids — индексы строк (форма [T], I32).
+    /// table — исходная таблица эмбеддингов (форма [E, V], нужна только для формы; F32).
+    /// dst — градиент таблицы (форма [E, V], F32).
+    pub fn get_rows_back(&mut self, g: TensorId, ids: TensorId, table: TensorId) -> TensorId {
+        let tg = self.t(g);
+        let tids = self.t(ids);
+        let ttable = self.t(table);
+        assert_eq!(tg.dtype, DType::F32, "get_rows_back: g должен быть F32");
+        assert_eq!(tids.dtype, DType::I32, "get_rows_back: ids должен быть I32");
+        assert_eq!(ttable.dtype, DType::F32,
+            "get_rows backward: F16-таблица — обучаемые embeddings только F32");
+        assert_eq!(tg.ne[0], ttable.ne[0],
+            "get_rows_back: несовпадение embedding-размера g.ne[0] и table.ne[0]");
+        assert_eq!(tg.ne[1], tids.ne[0],
+            "get_rows_back: несовпадение T: g.ne[1] != ids.ne[0]");
+        let dst = self.new_tensor(DType::F32, ttable.ne);
+        let d = self.t_mut(dst);
+        d.op = Op::GetRowsBack;
+        d.src = [Some(g), Some(ids), Some(table), None];
         dst
     }
 
@@ -302,6 +437,80 @@ impl Context {
         let d = self.t_mut(dst);
         d.op = Op::MulMat;
         d.src = [Some(a), Some(b), None, None];
+        dst
+    }
+
+    /// Outer product: dst[ix, iy] = Σ_{r=0..R} x[ix, r] * y[iy, r].
+    /// x: [Dx, R], y: [Dy, R] — оба 2D F32, dst: [Dx, Dy].
+    pub fn out_prod(&mut self, x: TensorId, y: TensorId) -> TensorId {
+        let tx = self.t(x);
+        let ty = self.t(y);
+        assert_eq!(tx.dtype, DType::F32, "out_prod: x должен быть F32");
+        assert_eq!(ty.dtype, DType::F32, "out_prod: y должен быть F32");
+        assert_eq!(
+            tx.ne[1], ty.ne[1],
+            "out_prod: несовпадение R"
+        );
+        assert_eq!(tx.ne[2], 1, "out_prod: только 2D");
+        assert_eq!(tx.ne[3], 1, "out_prod: только 2D");
+        assert_eq!(ty.ne[2], 1, "out_prod: только 2D");
+        assert_eq!(ty.ne[3], 1, "out_prod: только 2D");
+        let ne = [tx.ne[0], ty.ne[0], 1, 1];
+        let dst = self.new_tensor(DType::F32, ne);
+        let d = self.t_mut(dst);
+        d.op = Op::OutProd;
+        d.src = [Some(x), Some(y), None, None];
+        dst
+    }
+
+    /// Пометить тензор как обучаемый параметр.
+    pub fn set_param(&mut self, id: TensorId) {
+        self.t_mut(id).is_param = true;
+    }
+
+    /// Собрать до 4 тензоров в один (Op::Collect). Если > 4 — строит цепочку collect'ов.
+    /// dst — F32 [1,1,1,1], данные не используются.
+    pub fn collect(&mut self, srcs: &[TensorId]) -> TensorId {
+        assert!(!srcs.is_empty(), "collect: пустой список");
+        if srcs.len() <= MAX_SRC {
+            let dst = self.new_tensor_1d(DType::F32, 1);
+            let d = self.t_mut(dst);
+            d.op = Op::Collect;
+            for (i, &s) in srcs.iter().enumerate() {
+                d.src[i] = Some(s);
+            }
+            dst
+        } else {
+            // Цепочка: первые MAX_SRC в первый collect, остальные рекурсивно.
+            let mut remaining: Vec<TensorId> = srcs.to_vec();
+            loop {
+                if remaining.len() <= MAX_SRC {
+                    return self.collect(&remaining);
+                }
+                let batch: Vec<TensorId> = remaining.drain(..MAX_SRC).collect();
+                let c = self.collect(&batch);
+                remaining.push(c);
+            }
+        }
+    }
+
+    /// Сумма всех элементов тензора a в скаляр [1] (Op::SumAll).
+    pub fn sum_all(&mut self, a: TensorId) -> TensorId {
+        let dst = self.new_tensor_1d(DType::F32, 1);
+        let d = self.t_mut(dst);
+        d.op = Op::SumAll;
+        d.src = [Some(a), None, None, None];
+        dst
+    }
+
+    /// Обратное распространение SumAll: dst формы like.ne, заполняется g[0].
+    /// g — тензор [1] со значением градиента.
+    pub fn sum_all_back(&mut self, g: TensorId, like: TensorId) -> TensorId {
+        let ne = self.t(like).ne;
+        let dst = self.new_tensor(DType::F32, ne);
+        let d = self.t_mut(dst);
+        d.op = Op::SumAllBack;
+        d.src = [Some(g), None, None, None];
         dst
     }
 
@@ -411,5 +620,17 @@ mod tests {
         let a = ctx.new_tensor_2d(DType::I32, 3, 2);
         let t = ctx.t(a);
         assert_eq!(t.nb, [4, 12, 24, 24]);
+    }
+
+    #[test]
+    fn permute_saves_op_params() {
+        let mut ctx = Context::new(1 << 20);
+        let a = ctx.new_tensor_2d(DType::F32, 4, 3);
+        let p = ctx.permute(a, [1, 0, 2, 3]);
+        let params = ctx.t(p).op_params;
+        assert_eq!(params[0], 1);
+        assert_eq!(params[1], 0);
+        assert_eq!(params[2], 2);
+        assert_eq!(params[3], 3);
     }
 }

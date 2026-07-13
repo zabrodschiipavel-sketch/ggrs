@@ -4,7 +4,7 @@ use crate::op::Op;
 pub const MAX_DIMS: usize = 4;
 pub const MAX_SRC: usize = 4;
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub struct TensorId(pub usize);
 
 #[derive(Clone, Debug)]

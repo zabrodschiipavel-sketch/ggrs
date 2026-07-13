@@ -61,6 +61,70 @@ fn unary(ctx: &Context, dst_id: TensorId, ith: usize, nth: usize, f: impl Fn(f32
     }
 }
 
+/// Ядро обратного распространения Silu: dst = g * silu'(x).
+/// g и x — плотные F32-строки одинаковой формы (БЕЗ broadcast).
+pub fn silu_back(ctx: &Context, dst_id: TensorId, ith: usize, nth: usize) {
+    let dst = ctx.t(dst_id);
+    let g = ctx.t(dst.src[0].unwrap());
+    let x = ctx.t(dst.src[1].unwrap());
+    assert_eq!(dst.dtype, crate::dtype::DType::F32, "silu_back: только F32");
+    assert_eq!(dst.nb[0], dst.dtype.type_size(), "silu_back: dst строки должны быть плотными");
+    assert_eq!(g.nb[0], g.dtype.type_size(), "silu_back: g строки должны быть плотными");
+    assert_eq!(x.nb[0], x.dtype.type_size(), "silu_back: x строки должны быть плотными");
+    let ne0 = dst.ne[0];
+    let (ir0, ir1) = split(dst.nrows(), ith, nth);
+    for ir in ir0..ir1 {
+        let (i1, i2, i3) = unravel_row(dst, ir);
+        unsafe {
+            let pd = row_ptr(ctx, dst, i1, i2, i3) as *mut f32;
+            let pg = row_ptr(ctx, g, i1, i2, i3) as *const f32;
+            let px = row_ptr(ctx, x, i1, i2, i3) as *const f32;
+            for i in 0..ne0 {
+                let xv = *px.add(i);
+                // σ(x) = 1/(1+exp(-x))
+                let sig = 1.0 / (1.0 + (-xv).exp());
+                // silu'(x) = σ(x) * (1 + x * (1 - σ(x)))
+                let deriv = sig * (1.0 + xv * (1.0 - sig));
+                *pd.add(i) = *pg.add(i) * deriv;
+            }
+        }
+    }
+}
+
+/// Ядро обратного распространения Gelu (tanh-аппроксимация): dst = g * gelu'(x).
+/// g и x — плотные F32-строки одинаковой формы (БЕЗ broadcast).
+pub fn gelu_back(ctx: &Context, dst_id: TensorId, ith: usize, nth: usize) {
+    const C: f32 = 0.797_884_6; // √(2/π)
+    const B: f32 = 0.044715;
+    let dst = ctx.t(dst_id);
+    let g = ctx.t(dst.src[0].unwrap());
+    let x = ctx.t(dst.src[1].unwrap());
+    assert_eq!(dst.dtype, crate::dtype::DType::F32, "gelu_back: только F32");
+    assert_eq!(dst.nb[0], dst.dtype.type_size(), "gelu_back: dst строки должны быть плотными");
+    assert_eq!(g.nb[0], g.dtype.type_size(), "gelu_back: g строки должны быть плотными");
+    assert_eq!(x.nb[0], x.dtype.type_size(), "gelu_back: x строки должны быть плотными");
+    let ne0 = dst.ne[0];
+    let (ir0, ir1) = split(dst.nrows(), ith, nth);
+    for ir in ir0..ir1 {
+        let (i1, i2, i3) = unravel_row(dst, ir);
+        unsafe {
+            let pd = row_ptr(ctx, dst, i1, i2, i3) as *mut f32;
+            let pg = row_ptr(ctx, g, i1, i2, i3) as *const f32;
+            let px = row_ptr(ctx, x, i1, i2, i3) as *const f32;
+            for i in 0..ne0 {
+                let xv = *px.add(i);
+                // u = C*(x + B*x³)
+                let u = C * (xv + B * xv * xv * xv);
+                let t = u.tanh();
+                // gelu'(x) = 0.5*(1+t) + 0.5*x*(1-t*t)*C*(1+3*B*x*x)
+                let deriv = 0.5 * (1.0 + t)
+                    + 0.5 * xv * (1.0 - t * t) * C * (1.0 + 3.0 * B * xv * xv);
+                *pd.add(i) = *pg.add(i) * deriv;
+            }
+        }
+    }
+}
+
 pub fn add(ctx: &Context, dst: TensorId, ith: usize, nth: usize) {
     binary(ctx, dst, ith, nth, BinKind::Add);
 }

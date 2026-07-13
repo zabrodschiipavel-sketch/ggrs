@@ -4,6 +4,7 @@ pub mod rows;
 pub mod copy;
 pub mod rope;
 pub mod loss;
+pub mod outprod;
 
 use crate::context::Context;
 use crate::op::Op;
@@ -11,19 +12,28 @@ use crate::tensor::{Tensor, TensorId};
 
 pub(crate) fn dispatch(ctx: &Context, id: TensorId, ith: usize, nth: usize) {
     match ctx.t(id).op {
-        Op::None | Op::Reshape | Op::Permute => {}
+        Op::None | Op::Reshape | Op::Permute | Op::Collect => {}
         Op::Add => elementwise::add(ctx, id, ith, nth),
         Op::Mul => elementwise::mul(ctx, id, ith, nth),
         Op::Scale => elementwise::scale(ctx, id, ith, nth),
         Op::Silu => elementwise::silu(ctx, id, ith, nth),
         Op::Gelu => elementwise::gelu(ctx, id, ith, nth),
+        Op::SiluBack => elementwise::silu_back(ctx, id, ith, nth),
+        Op::GeluBack => elementwise::gelu_back(ctx, id, ith, nth),
         Op::MulMat => mulmat::mul_mat(ctx, id, ith, nth),
         Op::SoftMax => rows::soft_max(ctx, id, ith, nth),
         Op::RmsNorm => rows::rms_norm(ctx, id, ith, nth),
+        Op::SoftMaxBack => rows::soft_max_back(ctx, id, ith, nth),
+        Op::RmsNormBack => rows::rms_norm_back(ctx, id, ith, nth),
         Op::GetRows => copy::get_rows(ctx, id, ith, nth),
+        Op::GetRowsBack => copy::get_rows_back(ctx, id, ith, nth),
         Op::Cont => copy::cont(ctx, id, ith, nth),
         Op::Rope => rope::rope(ctx, id, ith, nth),
         Op::CrossEntropyLoss => loss::cross_entropy_loss(ctx, id, ith, nth),
+        Op::CrossEntropyLossBack => loss::cross_entropy_loss_back(ctx, id, ith, nth),
+        Op::SumAll => rows::sum_all(ctx, id, ith, nth),
+        Op::SumAllBack => rows::sum_all_back(ctx, id, ith, nth),
+        Op::OutProd => outprod::out_prod(ctx, id, ith, nth),
     }
 }
 
