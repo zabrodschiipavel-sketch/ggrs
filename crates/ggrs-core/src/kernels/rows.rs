@@ -67,3 +67,50 @@ pub fn rms_norm(ctx: &Context, dst_id: TensorId, ith: usize, nth: usize) {
         }
     }
 }
+
+/// Сумма всех элементов src в dst[0] (скаляр). Только ith==0, F32 contiguous.
+pub fn sum_all(ctx: &Context, dst_id: TensorId, ith: usize, _nth: usize) {
+    if ith != 0 {
+        return;
+    }
+    let dst = ctx.t(dst_id);
+    let a = ctx.t(dst.src[0].unwrap());
+    assert_eq!(dst.dtype, DType::F32, "sum_all: dst только F32");
+    assert_eq!(a.dtype, DType::F32, "sum_all: src только F32");
+    assert!(a.is_contiguous(), "sum_all: src обязан быть contiguous");
+    let data = unsafe {
+        std::slice::from_raw_parts(
+            ctx.base().add(a.offset) as *const f32,
+            a.nelements(),
+        )
+    };
+    let sum: f32 = data.iter().sum();
+    unsafe {
+        let pd = ctx.base().add(dst.offset) as *mut f32;
+        *pd = sum;
+    }
+}
+
+/// Заполнить dst формы like значением g[0] (обратное распространение SumAll).
+/// g — тензор [1] с градиентом. Каждый поток заполняет свои строки.
+pub fn sum_all_back(ctx: &Context, dst_id: TensorId, ith: usize, nth: usize) {
+    let dst = ctx.t(dst_id);
+    let g = ctx.t(dst.src[0].unwrap());
+    assert_eq!(dst.dtype, DType::F32, "sum_all_back: dst только F32");
+    assert_eq!(g.dtype, DType::F32, "sum_all_back: g только F32");
+    assert!(dst.is_contiguous(), "sum_all_back: dst обязан быть contiguous");
+    let g_val = unsafe {
+        *(ctx.base().add(g.offset) as *const f32)
+    };
+    let ne0 = dst.ne[0];
+    let (ir0, ir1) = split(dst.nrows(), ith, nth);
+    for ir in ir0..ir1 {
+        let (i1, i2, i3) = unravel_row(dst, ir);
+        unsafe {
+            let pd = row_ptr(ctx, dst, i1, i2, i3) as *mut f32;
+            for i in 0..ne0 {
+                *pd.add(i) = g_val;
+            }
+        }
+    }
+}

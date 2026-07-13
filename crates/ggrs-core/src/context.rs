@@ -305,6 +305,57 @@ impl Context {
         dst
     }
 
+    /// Пометить тензор как обучаемый параметр.
+    pub fn set_param(&mut self, id: TensorId) {
+        self.t_mut(id).is_param = true;
+    }
+
+    /// Собрать до 4 тензоров в один (Op::Collect). Если > 4 — строит цепочку collect'ов.
+    /// dst — F32 [1,1,1,1], данные не используются.
+    pub fn collect(&mut self, srcs: &[TensorId]) -> TensorId {
+        assert!(!srcs.is_empty(), "collect: пустой список");
+        if srcs.len() <= MAX_SRC {
+            let dst = self.new_tensor_1d(DType::F32, 1);
+            let d = self.t_mut(dst);
+            d.op = Op::Collect;
+            for (i, &s) in srcs.iter().enumerate() {
+                d.src[i] = Some(s);
+            }
+            dst
+        } else {
+            // Цепочка: первые MAX_SRC в первый collect, остальные рекурсивно.
+            let mut remaining: Vec<TensorId> = srcs.to_vec();
+            loop {
+                if remaining.len() <= MAX_SRC {
+                    return self.collect(&remaining);
+                }
+                let batch: Vec<TensorId> = remaining.drain(..MAX_SRC).collect();
+                let c = self.collect(&batch);
+                remaining.push(c);
+            }
+        }
+    }
+
+    /// Сумма всех элементов тензора a в скаляр [1] (Op::SumAll).
+    pub fn sum_all(&mut self, a: TensorId) -> TensorId {
+        let dst = self.new_tensor_1d(DType::F32, 1);
+        let d = self.t_mut(dst);
+        d.op = Op::SumAll;
+        d.src = [Some(a), None, None, None];
+        dst
+    }
+
+    /// Обратное распространение SumAll: dst формы like.ne, заполняется g[0].
+    /// g — тензор [1] со значением градиента.
+    pub fn sum_all_back(&mut self, g: TensorId, like: TensorId) -> TensorId {
+        let ne = self.t(like).ne;
+        let dst = self.new_tensor(DType::F32, ne);
+        let d = self.t_mut(dst);
+        d.op = Op::SumAllBack;
+        d.src = [Some(g), None, None, None];
+        dst
+    }
+
     fn binary_op(&mut self, op: Op, a: TensorId, b: TensorId) -> TensorId {
         let ta = self.t(a);
         let tb = self.t(b);

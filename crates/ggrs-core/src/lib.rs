@@ -8,6 +8,7 @@ pub mod graph;
 pub mod compute;
 pub mod simd;
 pub mod util;
+pub mod backward;
 mod kernels;
 
 pub use context::Context;
@@ -17,3 +18,4 @@ pub use tensor::{Tensor, TensorId, MAX_DIMS, MAX_SRC};
 pub use graph::{Graph, build_forward};
 pub use compute::compute;
 pub use compute::compute_profiled;
+pub use backward::{Backward, build_backward};

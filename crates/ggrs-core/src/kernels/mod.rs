@@ -11,7 +11,7 @@ use crate::tensor::{Tensor, TensorId};
 
 pub(crate) fn dispatch(ctx: &Context, id: TensorId, ith: usize, nth: usize) {
     match ctx.t(id).op {
-        Op::None | Op::Reshape | Op::Permute => {}
+        Op::None | Op::Reshape | Op::Permute | Op::Collect => {}
         Op::Add => elementwise::add(ctx, id, ith, nth),
         Op::Mul => elementwise::mul(ctx, id, ith, nth),
         Op::Scale => elementwise::scale(ctx, id, ith, nth),
@@ -24,6 +24,8 @@ pub(crate) fn dispatch(ctx: &Context, id: TensorId, ith: usize, nth: usize) {
         Op::Cont => copy::cont(ctx, id, ith, nth),
         Op::Rope => rope::rope(ctx, id, ith, nth),
         Op::CrossEntropyLoss => loss::cross_entropy_loss(ctx, id, ith, nth),
+        Op::SumAll => rows::sum_all(ctx, id, ith, nth),
+        Op::SumAllBack => rows::sum_all_back(ctx, id, ith, nth),
     }
 }
 
