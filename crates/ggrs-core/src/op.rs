@@ -29,4 +29,7 @@ pub enum Op {
     GeluBack,
     /// Обратное распространение CrossEntropyLoss: dst = (softmax(logits) - targets) * g0 / nrows
     CrossEntropyLossBack,
+    /// Обратное распространение GetRows: аккумуляция градиентов в embedding-таблицу.
+    /// dst (форма table) — градиент таблицы; src[0]=g, src[1]=ids, src[2]=table (для формы).
+    GetRowsBack,
 }

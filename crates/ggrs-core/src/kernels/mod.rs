@@ -24,6 +24,7 @@ pub(crate) fn dispatch(ctx: &Context, id: TensorId, ith: usize, nth: usize) {
         Op::SoftMax => rows::soft_max(ctx, id, ith, nth),
         Op::RmsNorm => rows::rms_norm(ctx, id, ith, nth),
         Op::GetRows => copy::get_rows(ctx, id, ith, nth),
+        Op::GetRowsBack => copy::get_rows_back(ctx, id, ith, nth),
         Op::Cont => copy::cont(ctx, id, ith, nth),
         Op::Rope => rope::rope(ctx, id, ith, nth),
         Op::CrossEntropyLoss => loss::cross_entropy_loss(ctx, id, ith, nth),

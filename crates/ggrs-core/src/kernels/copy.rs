@@ -94,3 +94,47 @@ pub fn cont(ctx: &Context, dst_id: TensorId, ith: usize, nth: usize) {
         ),
     }
 }
+
+/// Обратное распространение GetRows: аккумуляция градиентов в embedding-таблицу.
+/// Только ith==0 (ids могут повторяться — параллельная запись недопустима).
+/// dst (форма [E, V]) — градиент таблицы.
+/// src[0]=g (форма [E, T]), src[1]=ids (форма [T]), src[2]=table (форма [E, V], только для asserts).
+pub fn get_rows_back(ctx: &Context, dst_id: TensorId, ith: usize, _nth: usize) {
+    if ith != 0 {
+        return;
+    }
+    let dst = ctx.t(dst_id);
+    let g = ctx.t(dst.src[0].unwrap());
+    let ids = ctx.data_i32(dst.src[1].unwrap());
+
+    assert_eq!(dst.dtype, DType::F32, "get_rows_back: dst только F32");
+    assert_eq!(g.dtype, DType::F32, "get_rows_back: g только F32");
+    assert_eq!(dst.nb[0], dst.dtype.type_size(), "get_rows_back: dst строки должны быть плотными");
+    assert_eq!(g.nb[0], g.dtype.type_size(), "get_rows_back: g строки должны быть плотными");
+
+    let e = dst.ne[0];
+    let v = dst.ne[1];
+
+    // Зануляем весь dst (градиент таблицы)
+    unsafe {
+        let dst_slice = std::slice::from_raw_parts_mut(
+            ctx.base().add(dst.offset) as *mut f32,
+            dst.nelements(),
+        );
+        dst_slice.fill(0.0);
+    }
+
+    // Аккумулируем: для каждого t: dst[row-строка][*] += g[t-строка][*]
+    #[allow(clippy::needless_range_loop)]
+    for ti in 0..g.ne[1] {
+        let row = ids[ti] as usize;
+        assert!(row < v, "get_rows_back: индекс строки {row} вне диапазона [0, {v})");
+        unsafe {
+            let pg = row_ptr(ctx, g, ti, 0, 0) as *const f32;
+            let pd = row_ptr(ctx, dst, row, 0, 0) as *mut f32;
+            for i in 0..e {
+                *pd.add(i) += *pg.add(i);
+            }
+        }
+    }
+}

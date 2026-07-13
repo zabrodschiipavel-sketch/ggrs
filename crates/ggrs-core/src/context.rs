@@ -310,6 +310,30 @@ impl Context {
         dst
     }
 
+    /// Обратное распространение GetRows: аккумуляция градиентов в embedding-таблицу.
+    /// g — градиент выхода get_rows (форма [E, T], F32).
+    /// ids — индексы строк (форма [T], I32).
+    /// table — исходная таблица эмбеддингов (форма [E, V], нужна только для формы; F32).
+    /// dst — градиент таблицы (форма [E, V], F32).
+    pub fn get_rows_back(&mut self, g: TensorId, ids: TensorId, table: TensorId) -> TensorId {
+        let tg = self.t(g);
+        let tids = self.t(ids);
+        let ttable = self.t(table);
+        assert_eq!(tg.dtype, DType::F32, "get_rows_back: g должен быть F32");
+        assert_eq!(tids.dtype, DType::I32, "get_rows_back: ids должен быть I32");
+        assert_eq!(ttable.dtype, DType::F32,
+            "get_rows backward: F16-таблица — обучаемые embeddings только F32");
+        assert_eq!(tg.ne[0], ttable.ne[0],
+            "get_rows_back: несовпадение embedding-размера g.ne[0] и table.ne[0]");
+        assert_eq!(tg.ne[1], tids.ne[0],
+            "get_rows_back: несовпадение T: g.ne[1] != ids.ne[0]");
+        let dst = self.new_tensor(DType::F32, ttable.ne);
+        let d = self.t_mut(dst);
+        d.op = Op::GetRowsBack;
+        d.src = [Some(g), Some(ids), Some(table), None];
+        dst
+    }
+
     pub fn cont(&mut self, a: TensorId) -> TensorId {
         let ne = self.t(a).ne;
         let dtype = self.t(a).dtype;

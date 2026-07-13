@@ -124,6 +124,14 @@ pub fn build_backward(ctx: &mut Context, gf: &Graph, loss: TensorId) -> Backward
                 accumulate(ctx, &mut grads, logits, gl);
                 // targets не получают градиент
             }
+            Op::GetRows => {
+                let table = ctx.t(node_id).src[0].unwrap();
+                let ids = ctx.t(node_id).src[1].unwrap();
+                // ∂table += get_rows_back(g_dst, ids, table)
+                let gt = ctx.get_rows_back(g_dst, ids, table);
+                accumulate(ctx, &mut grads, table, gt);
+                // ids градиента не имеют
+            }
             _ => {
                 // Любой другой op с ненулевым grads[dst] — паника (задача T3+)
                 if grads.contains_key(&node_id) {
