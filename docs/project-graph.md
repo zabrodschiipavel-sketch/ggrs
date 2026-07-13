@@ -107,6 +107,12 @@ flowchart TB
 
 Спидран — главная: дешёвый на нашем железе, воспроизводимый, и площадка для скрининга остальных идей. По итогам исследования Muon (вариант Polar Express) повышен до обязательного второго оптимизатора сразу после AdamW-бейзлайна: доказан от 124M (спидран) до 1T (Kimi K2, MuonClip), состоит из одних matmul — идеально для наших AVX2-ядер. Интерфейс оптимизатора Фазы 2 закладывается с крючком error-feedback под ставку №2.
 
+Пятая фаза исследования ([sources-sweep](research/2026-07-13-sources-sweep.md)) добавила якоря:
+- **[OpenAI Parameter Golf](https://github.com/openai/parameter-golf)** — официальный бенчмарк (16MB артефакт, FineWeb, лидерборд); их «выигрышные техники» = наш список (Muon WD, Polar Express, Warmdown, Z-Loss). **CPU-форк Parameter Golf — второй формат спидрана** рядом с TinyStories.
+- Площадки: NeurIPS 2026 Evaluations&Datasets track (бенчмарк «CPU Training Speedrun» как сабмишн) и Competition track.
+- Риски из рецензий: ECO не рецензирован (валидируем сами); Hadamard из QuEST дорог на CPU (альтернатива — FWHT-подходы типа Fast-TurboQuant); GaLore на 1–100M может не давать экономии (ранг близок к полному).
+- Кандидаты в бэклог Фазы 7: ZeroQAT (forward-only градиенты — без памяти под активации), квантованный Muon (4-bit GRASP/8-bit), LC-QAT (2 бита на 0.1–10% данных), TinyStories-33M как эталонный бейзлайн с известными гиперпараметрами.
+
 ## Критические пути
 
 1. **К первой обученной модели**: арена(F1) → OUT_PROD → backward → gradcheck → AdamW → BPE → TinyStories. Самый длинный и самый ценный путь; всё остальное может ждать.
