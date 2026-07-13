@@ -86,6 +86,25 @@ pub fn build_backward(ctx: &mut Context, gf: &Graph, loss: TensorId) -> Backward
                 let g_back = ctx.sum_all_back(g_dst, src);
                 accumulate(ctx, &mut grads, src, g_back);
             }
+            Op::MulMat => {
+                let a = ctx.t(node_id).src[0].unwrap();
+                let b = ctx.t(node_id).src[1].unwrap();
+                // Проверка: только 2D (Фаза 2)
+                assert!(
+                    ctx.t(a).ne[2] == 1 && ctx.t(a).ne[3] == 1
+                        && ctx.t(b).ne[2] == 1 && ctx.t(b).ne[3] == 1,
+                    "mulmat backward: 3D — Фаза 3"
+                );
+                // ∂a = out_prod(b, g_dst)  — b[K,N] × g_dst[M,N] → [K,M]
+                let ga = ctx.out_prod(b, g_dst);
+                accumulate(ctx, &mut grads, a, ga);
+                // ∂b = mul_mat(cont(transpose(a)), g_dst)
+                // transpose(a): [K,M] → [M,K]
+                let at = ctx.transpose(a);
+                let atc = ctx.cont(at);
+                let gb = ctx.mul_mat(atc, g_dst);
+                accumulate(ctx, &mut grads, b, gb);
+            }
             _ => {
                 // Любой другой op с ненулевым grads[dst] — паника (задача T3+)
                 if grads.contains_key(&node_id) {
