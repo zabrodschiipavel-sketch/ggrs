@@ -87,10 +87,95 @@ fn outprod_symmetric() {
 }
 
 #[test]
-#[should_panic(expected = "out_prod: только 2D")]
-fn outprod_rejects_3d() {
-    let mut ctx = Context::new(1 << 20);
-    let x = ctx.new_tensor_3d(DType::F32, 4, 3, 2); // ne[2]=2
-    let y = ctx.new_tensor_2d(DType::F32, 5, 3);
-    let _ = ctx.out_prod(x, y);
+fn out_prod_3d_vs_naive() {
+    let mut ctx = Context::new(1 << 24);
+    let dx = 3usize;
+    let dy = 5usize;
+    let r = 4usize;
+    let b = 2usize;
+
+    // x: [3, 4, 2], y: [5, 4, 2]
+    let x = ctx.new_tensor_3d(DType::F32, dx, r, b);
+    let y = ctx.new_tensor_3d(DType::F32, dy, r, b);
+    fill_lcg(&mut ctx, x, 51);
+    fill_lcg(&mut ctx, y, 52);
+
+    // Сохраняем копии входов через get_f32 (читает по страйдам)
+    let xv: Vec<f32> = (0..(dx * r * b))
+        .map(|i| {
+            let ib = i / (dx * r);
+            let ir = (i / dx) % r;
+            let ix = i % dx;
+            ctx.get_f32(x, [ix, ir, ib, 0])
+        })
+        .collect();
+    let yv: Vec<f32> = (0..(dy * r * b))
+        .map(|i| {
+            let ib = i / (dy * r);
+            let ir = (i / dy) % r;
+            let iy = i % dy;
+            ctx.get_f32(y, [iy, ir, ib, 0])
+        })
+        .collect();
+
+    let d = ctx.out_prod(x, y);
+    assert_eq!(ctx.t(d).ne, [dx, dy, b, 1]);
+    let g = build_forward(&ctx, d);
+    compute(&ctx, &g, 1);
+
+    // dst: [dx, dy, b] — row-major: самый быстрый ix, затем iy, затем батч
+    for ib in 0..b {
+        for iy in 0..dy {
+            for ix in 0..dx {
+                let mut acc = 0.0f64;
+                for rr in 0..r {
+                    let x_idx = ib * dx * r + rr * dx + ix;
+                    let y_idx = ib * dy * r + rr * dy + iy;
+                    acc += xv[x_idx] as f64 * yv[y_idx] as f64;
+                }
+                let got = ctx.get_f32(d, [ix, iy, ib, 0]);
+                assert!(
+                    (got as f64 - acc).abs() < 1e-4,
+                    "out_prod_3d_vs_naive: ({ix},{iy},{ib}) got {got}, expected {acc}",
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn out_prod_3d_threads_parity() {
+    let dx = 3usize;
+    let dy = 5usize;
+    let r = 4usize;
+    let b = 2usize;
+
+    // Два контекста с одинаковыми данными
+    let mut ctx1 = Context::new(1 << 24);
+    let x1 = ctx1.new_tensor_3d(DType::F32, dx, r, b);
+    let y1 = ctx1.new_tensor_3d(DType::F32, dy, r, b);
+    fill_lcg(&mut ctx1, x1, 61);
+    fill_lcg(&mut ctx1, y1, 62);
+
+    let mut ctx2 = Context::new(1 << 24);
+    let x2 = ctx2.new_tensor_3d(DType::F32, dx, r, b);
+    let y2 = ctx2.new_tensor_3d(DType::F32, dy, r, b);
+    ctx2.set_f32(x2, ctx1.data_f32(x1));
+    ctx2.set_f32(y2, ctx1.data_f32(y1));
+
+    let d1 = ctx1.out_prod(x1, y1);
+    let d2 = ctx2.out_prod(x2, y2);
+
+    let g1 = build_forward(&ctx1, d1);
+    let g2 = build_forward(&ctx2, d2);
+
+    compute(&ctx1, &g1, 1);
+    compute(&ctx2, &g2, 4);
+
+    let out1 = ctx1.data_f32(d1);
+    let out2 = ctx2.data_f32(d2);
+    assert_eq!(out1.len(), out2.len());
+    for (i, (&a, &b)) in out1.iter().zip(out2.iter()).enumerate() {
+        assert_eq!(a, b, "out_prod_3d_threads_parity: mismatch at element {i}: {a} vs {b}");
+    }
 }

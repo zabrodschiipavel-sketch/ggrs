@@ -104,17 +104,16 @@ pub fn build_backward(ctx: &mut Context, gf: &Graph, loss: TensorId) -> Backward
             Op::MulMat => {
                 let a = ctx.t(node_id).src[0].unwrap();
                 let b = ctx.t(node_id).src[1].unwrap();
-                // Проверка: только 2D (Фаза 2)
+                // 2D и 3D-с-равным-батчем; 4D/broadcast по батчу — Фаза 5/6
                 assert!(
-                    ctx.t(a).ne[2] == 1 && ctx.t(a).ne[3] == 1
-                        && ctx.t(b).ne[2] == 1 && ctx.t(b).ne[3] == 1,
-                    "mulmat backward: 3D — Фаза 3"
+                    ctx.t(a).ne[3] == 1 && ctx.t(b).ne[3] == 1
+                        && ctx.t(a).ne[2] == ctx.t(b).ne[2],
+                    "mulmat backward: поддержаны 2D и 3D с равным батчем (ne3==1, ne2 совпадают); 4D/broadcast — Фаза 5/6"
                 );
-                // ∂a = out_prod(b, g_dst)  — b[K,N] × g_dst[M,N] → [K,M]
+                // ∂a = out_prod(b, g_dst)
                 let ga = ctx.out_prod(b, g_dst);
                 accumulate(ctx, &mut grads, a, ga);
                 // ∂b = mul_mat(cont(transpose(a)), g_dst)
-                // transpose(a): [K,M] → [M,K]
                 let at = ctx.transpose(a);
                 let atc = ctx.cont(at);
                 let gb = ctx.mul_mat(atc, g_dst);

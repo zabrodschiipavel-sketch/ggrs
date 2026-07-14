@@ -1,10 +1,10 @@
 use crate::context::Context;
 use crate::dtype::DType;
 use crate::tensor::TensorId;
-use super::{split};
+use super::split;
 
-/// OutProd: dst[ix, iy] = Σ_{r=0..R} x[ix, r] * y[iy, r].
-/// Параллелизм по строкам dst (iy).
+/// OutProd с батчем: dst[ix, iy, b] = Σ_{r} x[ix, r, b] · y[iy, r, b].
+/// Параллелизм по строкам dst = (iy, ib).
 pub fn out_prod(ctx: &Context, dst_id: TensorId, ith: usize, nth: usize) {
     let dst = ctx.t(dst_id);
     let x = ctx.t(dst.src[0].unwrap());
@@ -20,21 +20,23 @@ pub fn out_prod(ctx: &Context, dst_id: TensorId, ith: usize, nth: usize) {
     let dx = x.ne[0];
     let dy = y.ne[0];
     let r = x.ne[1]; // R = ne[1] обоих, проверено в билдере
+    let batch = dst.ne[2]; // ne[3]==1 гарантировано билдером
 
-    // параллелизм по строкам dst = dy (все строки dst — это ne[1])
-    let (iy0, iy1) = split(dy, ith, nth);
+    // строки dst = dy * batch; строка = (iy, ib)
+    let nrows = dy * batch;
+    let (ir0, ir1) = split(nrows, ith, nth);
 
     unsafe {
-        for iy in iy0..iy1 {
-            let pdst = (ctx.base().add(dst.offset + iy * dst.nb[1])) as *mut f32;
+        for ir in ir0..ir1 {
+            let ib = ir / dy;
+            let iy = ir % dy;
+            let pdst = ctx.base().add(dst.offset + iy * dst.nb[1] + ib * dst.nb[2]) as *mut f32;
 
             for ix in 0..dx {
                 let mut acc = 0.0f32;
                 for r0 in 0..r {
-                    // элемент x[ix, r0] = *(x_base + r0*x.nb[1] + ix*x.nb[0])
-                    let px = ctx.base().add(x.offset + r0 * x.nb[1] + ix * x.nb[0]) as *const f32;
-                    // элемент y[iy, r0] = *(y_base + r0*y.nb[1] + iy*y.nb[0])
-                    let py = ctx.base().add(y.offset + r0 * y.nb[1] + iy * y.nb[0]) as *const f32;
+                    let px = ctx.base().add(x.offset + ix * x.nb[0] + r0 * x.nb[1] + ib * x.nb[2]) as *const f32;
+                    let py = ctx.base().add(y.offset + iy * y.nb[0] + r0 * y.nb[1] + ib * y.nb[2]) as *const f32;
                     acc += *px * *py;
                 }
                 *pdst.add(ix) = acc;

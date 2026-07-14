@@ -461,22 +461,18 @@ impl Context {
         dst
     }
 
-    /// Outer product: dst[ix, iy] = Σ_{r=0..R} x[ix, r] * y[iy, r].
-    /// x: [Dx, R], y: [Dy, R] — оба 2D F32, dst: [Dx, Dy].
+    /// Outer product с батчем: dst[ix, iy, b] = Σ_{r} x[ix, r, b] · y[iy, r, b].
+    /// x: [Dx, R, B], y: [Dy, R, B] — 2D (B=1) или 3D F32; dst: [Dx, Dy, B].
     pub fn out_prod(&mut self, x: TensorId, y: TensorId) -> TensorId {
         let tx = self.t(x);
         let ty = self.t(y);
         assert_eq!(tx.dtype, DType::F32, "out_prod: x должен быть F32");
         assert_eq!(ty.dtype, DType::F32, "out_prod: y должен быть F32");
-        assert_eq!(
-            tx.ne[1], ty.ne[1],
-            "out_prod: несовпадение R"
-        );
-        assert_eq!(tx.ne[2], 1, "out_prod: только 2D");
-        assert_eq!(tx.ne[3], 1, "out_prod: только 2D");
-        assert_eq!(ty.ne[2], 1, "out_prod: только 2D");
-        assert_eq!(ty.ne[3], 1, "out_prod: только 2D");
-        let ne = [tx.ne[0], ty.ne[0], 1, 1];
+        assert_eq!(tx.ne[1], ty.ne[1], "out_prod: несовпадение R");
+        assert_eq!(tx.ne[2], ty.ne[2], "out_prod: несовпадение батча");
+        assert_eq!(tx.ne[3], 1, "out_prod: 4D не поддержан");
+        assert_eq!(ty.ne[3], 1, "out_prod: 4D не поддержан");
+        let ne = [tx.ne[0], ty.ne[0], tx.ne[2], 1];
         let dst = self.new_tensor(DType::F32, ne);
         let d = self.t_mut(dst);
         d.op = Op::OutProd;
