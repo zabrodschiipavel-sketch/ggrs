@@ -15,6 +15,10 @@ import subprocess
 import sys
 import urllib.request
 
+# Windows-консоль по умолчанию cp1252 — кириллица в print роняет процесс.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 SECRETS = json.load(open(r"C:\Users\pavel\.ggrs-secrets.json"))
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 REPO = r"C:\Users\pavel\ggrs"
