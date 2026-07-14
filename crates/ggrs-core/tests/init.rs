@@ -57,3 +57,16 @@ fn fill_uniform_bounds() {
         assert!((-0.5..0.5).contains(&v), "v = {v}");
     }
 }
+
+/// mem_used растёт с аллокациями и учитывает 32-байтное выравнивание.
+#[test]
+fn mem_used_grows_aligned() {
+    let mut ctx = Context::new(1 << 20);
+    assert_eq!(ctx.mem_used(), 0);
+    let _a = ctx.new_tensor_1d(DType::F32, 1); // 4 байта
+    let used1 = ctx.mem_used();
+    assert_eq!(used1, 4);
+    let _b = ctx.new_tensor_1d(DType::F32, 1); // оффсет выровнен к 32
+    let used2 = ctx.mem_used();
+    assert_eq!(used2, 36, "вторая аллокация должна начаться с оффсета 32");
+}

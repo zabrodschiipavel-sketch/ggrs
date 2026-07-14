@@ -78,6 +78,11 @@ impl Context {
         self.tensors.len()
     }
 
+    /// Занято байт в арене (с учётом выравнивания аллокаций).
+    pub fn mem_used(&self) -> usize {
+        self.arena_used
+    }
+
     pub(crate) fn base(&self) -> *mut u8 {
         unsafe { (*self.arena.buf.get()).as_mut_ptr() as *mut u8 }
     }
