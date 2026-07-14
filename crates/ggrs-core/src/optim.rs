@@ -50,11 +50,8 @@ impl AdamW {
     pub fn step(&mut self, ctx: &mut Context, grads: &Backward) -> (f32, bool) {
         self.t = self.t.wrapping_add(1);
 
-        // Шаг 2: собрать градиенты и вычислить глобальную норму
-        let mut global_norm_sq: f64 = 0.0;
-        // Копируем градиенты из тензоров в Vec — чтобы borrow checker не конфликтовал
-        // с data_f32_mut на параметрах.
-        let grad_slices: Vec<Vec<f32>> = self
+        // Шаг 2: собрать градиенты из Backward
+        let grads_flat: Vec<Vec<f32>> = self
             .state
             .iter()
             .map(|&(param, _, _)| {
@@ -63,31 +60,75 @@ impl AdamW {
             })
             .collect();
 
-        for g in &grad_slices {
+        self.apply(ctx, &grads_flat)
+    }
+
+    /// Шаг по накопленным градиентам: g_eff = bufs / count (усреднение микробатчей).
+    /// Семантика идентична step (клип по глобальной норме, NaN-guard, wd, t += 1);
+    /// возвращает (grad_global_norm ДО клипа, пропущен_ли_шаг_из-за_NaN).
+    ///
+    /// acc должен быть создан по тому же срезу params, что и оптимизатор —
+    /// соответствие TensorId проверяется assert'ом по индексам.
+    ///
+    /// Паника при count == 0 с внятным сообщением.
+    pub fn step_accum(&mut self, ctx: &mut Context, acc: &GradAccum) -> (f32, bool) {
+        assert!(
+            acc.count > 0,
+            "AdamW::step_accum: count == 0 — нет накопленных градиентов"
+        );
+
+        self.t = self.t.wrapping_add(1);
+
+        // Проверка соответствия параметров
+        for (i, (param, _, _)) in self.state.iter().enumerate() {
+            assert_eq!(
+                *param, acc.params[i],
+                "AdamW::step_accum: несовпадение TensorId на индексе {}: AdamW {:?} != GradAccum {:?}",
+                i, param, acc.params[i]
+            );
+        }
+
+        // Усреднение микробатчей: g_eff = bufs / count
+        let inv_count = 1.0 / acc.count as f32;
+        let grads_flat: Vec<Vec<f32>> = acc
+            .bufs
+            .iter()
+            .map(|buf| buf.iter().map(|&x| x * inv_count).collect())
+            .collect();
+
+        self.apply(ctx, &grads_flat)
+    }
+
+    /// Приватное ядро шага: градиенты уже собраны в grads_flat[i] для params[i].
+    /// t уже инкрементирован к моменту вызова.
+    fn apply(&mut self, ctx: &mut Context, grads_flat: &[Vec<f32>]) -> (f32, bool) {
+        // Вычисление глобальной нормы (f64)
+        let mut global_norm_sq: f64 = 0.0;
+        for g in grads_flat {
             for &gi in g.iter() {
                 global_norm_sq += (gi as f64) * (gi as f64);
             }
         }
         let norm = global_norm_sq.sqrt() as f32;
 
-        // Шаг 3: NaN-guard
+        // NaN-guard
         if !norm.is_finite() {
-            // t уже инкрементирован — это ок для восстановления шага
             return (norm, true);
         }
 
-        // Шаг 4: клиппинг
+        // Клиппинг
         let scale: f32 = if self.clip_global_norm > 0.0 && norm > self.clip_global_norm {
             self.clip_global_norm / norm
         } else {
             1.0
         };
 
-        // Шаг 5: обновление параметров
+        // Bias correction
         let inv_beta1_t = 1.0 / (1.0 - self.beta1.powi(self.t as i32));
         let inv_beta2_t = 1.0 / (1.0 - self.beta2.powi(self.t as i32));
 
-        for ((param, m, v), g) in self.state.iter_mut().zip(grad_slices.iter()) {
+        // Обновление параметров
+        for ((param, m, v), g) in self.state.iter_mut().zip(grads_flat.iter()) {
             let p_data = ctx.data_f32_mut(*param);
 
             for i in 0..p_data.len() {
@@ -112,6 +153,93 @@ impl AdamW {
         }
 
         (norm, false)
+    }
+
+    /// Состояние для чекпоинта: (t, срез (param, m, v)).
+    #[allow(clippy::type_complexity)]
+    pub fn state(&self) -> (u64, &[(TensorId, Vec<f32>, Vec<f32>)]) {
+        (self.t, &self.state)
+    }
+
+    /// Восстановление состояния (t и m/v). Паника при несовпадении длин/параметров.
+    pub fn restore_state(&mut self, t: u64, mv: Vec<(TensorId, Vec<f32>, Vec<f32>)>) {
+        assert_eq!(
+            mv.len(),
+            self.state.len(),
+            "AdamW::restore_state: количество параметров не совпадает: {} vs {}",
+            mv.len(),
+            self.state.len()
+        );
+        for (i, (param, m, v)) in mv.iter().enumerate() {
+            assert_eq!(
+                *param, self.state[i].0,
+                "AdamW::restore_state: TensorId не совпадает на индексе {}",
+                i
+            );
+            assert_eq!(
+                m.len(),
+                self.state[i].1.len(),
+                "AdamW::restore_state: длина m не совпадает на индексе {}",
+                i
+            );
+            assert_eq!(
+                v.len(),
+                self.state[i].2.len(),
+                "AdamW::restore_state: длина v не совпадает на индексе {}",
+                i
+            );
+        }
+        self.t = t;
+        self.state = mv;
+    }
+}
+
+/// Аккумулятор градиентов для микробатчей: буферы вне графа.
+///
+/// Параметры должны быть в том же порядке, что и при создании AdamW.
+pub struct GradAccum {
+    params: Vec<TensorId>,
+    bufs: Vec<Vec<f32>>,
+    count: u32,
+}
+
+impl GradAccum {
+    /// Буферы нулей по форме параметров.
+    pub fn new(params: &[TensorId], ctx: &Context) -> Self {
+        let bufs: Vec<Vec<f32>> = params
+            .iter()
+            .map(|&p| vec![0.0; ctx.t(p).nelements()])
+            .collect();
+        GradAccum {
+            params: params.to_vec(),
+            bufs,
+            count: 0,
+        }
+    }
+
+    /// bufs[i] += data(grads.grads[params[i]]); count += 1.
+    /// Паника, если у какого-то параметра нет градиента в grads.
+    pub fn add(&mut self, ctx: &Context, grads: &Backward) {
+        for (buf, &param) in self.bufs.iter_mut().zip(&self.params) {
+            let grad_id = grads.grads[&param];
+            let g = ctx.data_f32(grad_id);
+            for (b, &gi) in buf.iter_mut().zip(g.iter()) {
+                *b += gi;
+            }
+        }
+        self.count += 1;
+    }
+
+    /// Обнулить буферы и счётчик.
+    pub fn reset(&mut self) {
+        for buf in self.bufs.iter_mut() {
+            buf.fill(0.0);
+        }
+        self.count = 0;
+    }
+
+    pub fn count(&self) -> u32 {
+        self.count
     }
 }
 
