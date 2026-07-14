@@ -3,6 +3,7 @@ use std::cell::UnsafeCell;
 use crate::dtype::DType;
 use crate::op::Op;
 use crate::tensor::{Tensor, TensorId, MAX_DIMS, MAX_SRC};
+use crate::util::Lcg;
 
 struct Arena {
     // u64-хранилище гарантирует выравнивание 8 байт для f32/i32-доступа
@@ -143,6 +144,21 @@ impl Context {
             *dst = crate::dtype::f32_to_f16(src);
         }
     }
+
+    /// Залить F32-тензор значениями N(mean, std) из rng. Тензор должен быть F32 и contiguous.
+    pub fn fill_normal(&mut self, id: TensorId, mean: f32, std: f32, rng: &mut Lcg) {
+        for v in self.data_f32_mut(id) {
+            *v = rng.next_normal(mean, std);
+        }
+    }
+
+    /// Залить F32-тензор равномерными значениями [lo, hi) из rng.
+    pub fn fill_uniform(&mut self, id: TensorId, lo: f32, hi: f32, rng: &mut Lcg) {
+        for v in self.data_f32_mut(id) {
+            *v = lo + (rng.next_f32() + 0.5) * (hi - lo);
+        }
+    }
+
     /// Строковое чтение через страйды — работает и для views/permute.
     pub fn get_f32(&self, id: TensorId, idx: [usize; MAX_DIMS]) -> f32 {
         let t = self.t(id);
