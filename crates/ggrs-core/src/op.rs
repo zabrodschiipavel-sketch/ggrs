@@ -38,4 +38,6 @@ pub enum Op {
     /// Обратное распространение RmsNorm: dst = r*g − x * r³ * dot / ne0.
     /// src[0]=g, src[1]=x (вход rms_norm); op_params[0]=eps.to_bits().
     RmsNormBack,
+    /// Каузальная маска: элементы i0 > i1 → f32::NEG_INFINITY (op_params[0]=0) или 0.0 (op_params[0]=1).
+    DiagMaskInf,
 }

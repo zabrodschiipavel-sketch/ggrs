@@ -190,6 +190,13 @@ pub fn build_backward(ctx: &mut Context, gf: &Graph, loss: TensorId) -> Backward
                 let x = ctx.t(node_id).src[0].unwrap();
                 accumulate(ctx, &mut grads, x, g_dst);
             }
+            Op::DiagMaskInf => {
+                // Маска — константная структура графа: градиент проходит на
+                // не-маскированных позициях, на маскированных = 0.
+                let x = ctx.t(node_id).src[0].unwrap();
+                let gx = ctx.diag_mask_zero(g_dst);
+                accumulate(ctx, &mut grads, x, gx);
+            }
             _ => {
                 // Любой другой op с ненулевым grads[dst] — паника (задача T3+)
                 if grads.contains_key(&node_id) {

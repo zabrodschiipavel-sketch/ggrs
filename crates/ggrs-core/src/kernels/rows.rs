@@ -189,3 +189,33 @@ pub fn sum_all_back(ctx: &Context, dst_id: TensorId, ith: usize, nth: usize) {
         }
     }
 }
+
+/// Каузальная маска: по строке (i1, i2, i3) элементы i0 > i1 → FILL.
+/// FILL = f32::NEG_INFINITY при op_params[0]==0, иначе 0.0 (grad-режим).
+/// src и dst — F32, одинаковой формы, плотные строки.
+pub fn diag_mask(ctx: &Context, dst_id: TensorId, ith: usize, nth: usize) {
+    let dst = ctx.t(dst_id);
+    let a = ctx.t(dst.src[0].unwrap());
+    assert_eq!(dst.dtype, DType::F32, "diag_mask: только F32");
+    assert_eq!(a.dtype, DType::F32, "diag_mask: только F32");
+    assert!(dst.same_shape(a), "diag_mask: src и dst должны быть одной формы");
+    assert_eq!(dst.nb[0], dst.dtype.type_size(), "diag_mask: dst строки должны быть плотными");
+    assert_eq!(a.nb[0], a.dtype.type_size(), "diag_mask: src0 строки должны быть плотными");
+    let ne0 = dst.ne[0];
+    let fill = if dst.op_params[0] == 0 { f32::NEG_INFINITY } else { 0.0 };
+    let (ir0, ir1) = split(dst.nrows(), ith, nth);
+    for ir in ir0..ir1 {
+        let (i1, i2, i3) = unravel_row(dst, ir);
+        unsafe {
+            let pa = row_ptr(ctx, a, i1, i2, i3) as *const f32;
+            let pd = row_ptr(ctx, dst, i1, i2, i3) as *mut f32;
+            for i0 in 0..ne0 {
+                if i0 > i1 {
+                    *pd.add(i0) = fill;
+                } else {
+                    *pd.add(i0) = *pa.add(i0);
+                }
+            }
+        }
+    }
+}

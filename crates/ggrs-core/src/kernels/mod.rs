@@ -34,6 +34,7 @@ pub(crate) fn dispatch(ctx: &Context, id: TensorId, ith: usize, nth: usize) {
         Op::SumAll => rows::sum_all(ctx, id, ith, nth),
         Op::SumAllBack => rows::sum_all_back(ctx, id, ith, nth),
         Op::OutProd => outprod::out_prod(ctx, id, ith, nth),
+        Op::DiagMaskInf => rows::diag_mask(ctx, id, ith, nth),
     }
 }
 

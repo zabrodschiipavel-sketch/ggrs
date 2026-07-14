@@ -535,6 +535,22 @@ impl Context {
         dst
     }
 
+    /// Каузальная маска: по каждой строке (i1, i2) элементы i0 > i1 → -inf.
+    /// a — F32 [tk, tq, h, 1]; применяется к матрице attention перед soft_max.
+    pub fn diag_mask_inf(&mut self, a: TensorId) -> TensorId {
+        assert_eq!(self.t(a).dtype, DType::F32, "diag_mask_inf: только F32");
+        self.unary_op(Op::DiagMaskInf, a)
+        // op_params[0] остаётся 0 → режим -inf
+    }
+
+    /// Grad-режим той же маски: маскированные позиции → 0.0. Только для build_backward.
+    pub(crate) fn diag_mask_zero(&mut self, a: TensorId) -> TensorId {
+        assert_eq!(self.t(a).dtype, DType::F32, "diag_mask_zero: только F32");
+        let dst = self.unary_op(Op::DiagMaskInf, a);
+        self.t_mut(dst).op_params[0] = 1;
+        dst
+    }
+
     fn binary_op(&mut self, op: Op, a: TensorId, b: TensorId) -> TensorId {
         let ta = self.t(a);
         let tb = self.t(b);
