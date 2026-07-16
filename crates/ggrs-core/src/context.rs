@@ -41,8 +41,14 @@ impl Context {
     pub fn new_tensor(&mut self, dtype: DType, ne: [usize; MAX_DIMS]) -> TensorId {
         let nb0 = dtype.type_size();
         let nb1 = dtype.row_size(ne[0]);
-        let nb = [nb0, nb1, nb1 * ne[1], nb1 * ne[1] * ne[2]];
-        let nbytes = dtype.row_size(ne[0]) * ne[1] * ne[2] * ne[3];
+        // Проверяемая арифметика layout: в release обычное умножение молча
+        // заворачивается, создавая тензор меньше заявленного (аудит P0).
+        // Валидация здесь делает инварианты (offset+idx*nb ≤ nbytes ≤ арена)
+        // безопасными для всех последующих не-checked вычислений.
+        let nb2 = nb1.checked_mul(ne[1]).expect("ggrs: переполнение layout (nb2)");
+        let nb3 = nb2.checked_mul(ne[2]).expect("ggrs: переполнение layout (nb3)");
+        let nbytes = nb3.checked_mul(ne[3]).expect("ggrs: переполнение layout (nbytes)");
+        let nb = [nb0, nb1, nb2, nb3];
         let offset = self.alloc(nbytes);
         self.push_tensor(Tensor {
             dtype, ne, nb, op: Op::None,
@@ -168,6 +174,10 @@ impl Context {
     pub fn get_f32(&self, id: TensorId, idx: [usize; MAX_DIMS]) -> f32 {
         let t = self.t(id);
         assert_eq!(t.dtype, DType::F32);
+        // Границы обязательны: смещение вне тензора читало бы чужую память арены (аудит P0).
+        for d in 0..MAX_DIMS {
+            assert!(idx[d] < t.ne[d], "get_f32: индекс {:?} вне формы {:?}", idx, t.ne);
+        }
         let off = t.offset + idx[0] * t.nb[0] + idx[1] * t.nb[1] + idx[2] * t.nb[2] + idx[3] * t.nb[3];
         unsafe { *(self.base().add(off) as *const f32) }
     }

@@ -150,3 +150,19 @@ fn test_collect_chain() {
     // compute должен пройти без ошибок (no-op ядра)
     compute(&ctx, &gf, 1);
 }
+
+// ----------------------------------------------------------------
+// Аудит P1: broadcast-backward для Mul запрещён (молча неверный градиент хуже паники)
+// ----------------------------------------------------------------
+#[test]
+#[should_panic(expected = "Mul backward: broadcast не поддержан")]
+fn mul_backward_rejects_broadcast() {
+    let mut ctx = Context::new(1 << 20);
+    let a = fill_lcg(&mut ctx, [4, 3, 1, 1], 90);
+    let b = fill_lcg(&mut ctx, [4, 1, 1, 1], 91); // broadcast по строкам — forward валиден
+    let prod = ctx.mul(a, b);
+    let loss = ctx.sum_all(prod);
+    ctx.set_param(a);
+    let gf = build_forward(&ctx, loss);
+    let _ = build_backward(&mut ctx, &gf, loss);
+}

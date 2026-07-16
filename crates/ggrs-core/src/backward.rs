@@ -67,6 +67,14 @@ pub fn build_backward(ctx: &mut Context, gf: &Graph, loss: TensorId) -> Backward
             Op::Mul => {
                 let src0 = ctx.t(node_id).src[0].unwrap();
                 let src1 = ctx.t(node_id).src[1].unwrap();
+                // Broadcast-backward не реализован (нужен reduce-sum по broadcast-осям);
+                // молча неверный градиент хуже паники — запрещаем (аудит P1).
+                assert!(
+                    ctx.t(src0).same_shape(ctx.t(src1)),
+                    "Mul backward: broadcast не поддержан (формы {:?} и {:?})",
+                    ctx.t(src0).ne,
+                    ctx.t(src1).ne
+                );
                 // ∂a += mul(g, b)
                 let b = ctx.t(node_id).src[1].unwrap();
                 let g_mul_b = ctx.mul(g_dst, b);

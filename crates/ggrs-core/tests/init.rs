@@ -70,3 +70,21 @@ fn mem_used_grows_aligned() {
     let used2 = ctx.mem_used();
     assert_eq!(used2, 36, "вторая аллокация должна начаться с оффсета 32");
 }
+
+/// get_f32 с индексом вне формы — паника, а не чтение чужой памяти (аудит P0).
+#[test]
+#[should_panic(expected = "вне формы")]
+fn get_f32_out_of_bounds_panics() {
+    let mut ctx = Context::new(1 << 16);
+    let a = ctx.new_tensor_2d(DType::F32, 3, 2);
+    ctx.set_f32(a, &[0.0; 6]);
+    let _ = ctx.get_f32(a, [3, 0, 0, 0]); // ne[0]==3 → максимум индекс 2
+}
+
+/// Переполнение арифметики layout — контролируемая паника до аллокации (аудит P0).
+#[test]
+#[should_panic(expected = "переполнение")]
+fn new_tensor_layout_overflow_panics() {
+    let mut ctx = Context::new(1 << 16);
+    let _ = ctx.new_tensor_4d(DType::F32, usize::MAX / 2, 4, 4, 4);
+}
