@@ -159,10 +159,9 @@ pub fn train(
     let mut final_train_loss: f32 = 0.0;
     let mut skipped_steps: u64 = 0;
     let mut tokens_seen: u64 = 0;
+    let run_start = std::time::Instant::now();
 
     for step in start_step..cfg.steps {
-        let step_start = std::time::Instant::now();
-
         accum.reset();
         let mut sum_loss = 0.0f64;
 
@@ -189,7 +188,10 @@ pub fn train(
 
         tokens_seen += (cfg.grad_accum as u64) * t as u64;
 
-        let elapsed = step_start.elapsed();
+        // Кумулятивное среднее с начала ЭТОГО вызова train() (не с начала step —
+        // баг был именно тут: cumulative tokens_seen делился на elapsed одного шага,
+        // что линейно завышало tok/s с ростом номера шага).
+        let elapsed = run_start.elapsed();
         let tok_per_s = if elapsed.as_secs_f64() > 0.0 {
             (tokens_seen as f64 / elapsed.as_secs_f64()) as f32
         } else {
