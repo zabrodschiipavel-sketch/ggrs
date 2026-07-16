@@ -19,13 +19,13 @@ fn get_rows_f16_matches_f32() {
     // get_rows от F32
     let r_f32 = ctx.get_rows(emb_f32, ids);
     let g = build_forward(&ctx, r_f32);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
     let expected = ctx.data_f32(r_f32).to_vec();
 
     // get_rows от F16
     let r_f16 = ctx.get_rows(emb_f16, ids);
     let g2 = build_forward(&ctx, r_f16);
-    compute(&ctx, &g2, 1);
+    compute(&mut ctx, &g2, 1);
     let got = ctx.data_f32(r_f16);
 
     assert_eq!(got.len(), expected.len(), "get_rows: разные длины");
@@ -53,7 +53,7 @@ fn cont_f16_to_f32() {
     // cont_f32 сделает F32-копию из страйдового F16
     let c = ctx.cont_f32(t);
     let g = build_forward(&ctx, c);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
 
     // Проверка: все 6 значений через data_f32
     let data = ctx.data_f32(c);
@@ -90,7 +90,7 @@ fn cont_f16_roundtrip() {
     // cont (F16 -> F16)
     let c = ctx.cont(a);
     let g = build_forward(&ctx, c);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
 
     let after_u16 = ctx.data_u16(c);
     assert_eq!(
@@ -118,5 +118,25 @@ fn mulmat_rejects_f16_a() {
     ctx.set_f32(b, &[1.0; 12]);
     let d = ctx.mul_mat(a, b);
     let g = build_forward(&ctx, d);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
+}
+
+/// Край subnormal-диапазона f32→f16: RNE на [2^-25, 2^-24) (аудит P2).
+#[test]
+fn f16_subnormal_edge_rne() {
+    use ggrs_core::dtype::{f16_to_f32, f32_to_f16};
+    // 3·2^-26 = 1.5·2^-25 ∈ (2^-25, 2^-24): ближайший — минимальный денормал 0x0001
+    let v = 3.0f32 * (2.0f32).powi(-26);
+    assert_eq!(f32_to_f16(v), 0x0001, "1.5·2^-25 должен округлиться к 0x0001");
+    // ровно 2^-25 — середина: tie-to-even → 0
+    assert_eq!(f32_to_f16((2.0f32).powi(-25)), 0x0000, "2^-25 — tie к чётному нулю");
+    // чуть ниже 2^-25 → 0
+    assert_eq!(f32_to_f16(0.99f32 * (2.0f32).powi(-25)), 0x0000);
+    // чуть выше 2^-25 → 0x0001
+    assert_eq!(f32_to_f16(1.01f32 * (2.0f32).powi(-25)), 0x0001);
+    // 2^-24 — сам минимальный денормал
+    assert_eq!(f32_to_f16((2.0f32).powi(-24)), 0x0001);
+    assert_eq!(f16_to_f32(0x0001), (2.0f32).powi(-24));
+    // знак сохраняется
+    assert_eq!(f32_to_f16(-v), 0x8001);
 }

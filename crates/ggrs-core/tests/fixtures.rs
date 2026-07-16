@@ -78,7 +78,7 @@ fn ops_match_numpy() {
         let b = tensor(&mut ctx, &fx["mulmat.b"]);
         let d = ctx.mul_mat(a, b);
         let g = build_forward(&ctx, d);
-        compute(&ctx, &g, 2);
+        compute(&mut ctx, &g, 2);
         assert_close(ctx.data_f32(d), &fx["mulmat.out"].f32s, "mulmat");
     }
     // softmax
@@ -87,7 +87,7 @@ fn ops_match_numpy() {
         let x = tensor(&mut ctx, &fx["softmax.x"]);
         let d = ctx.soft_max(x);
         let g = build_forward(&ctx, d);
-        compute(&ctx, &g, 2);
+        compute(&mut ctx, &g, 2);
         assert_close(ctx.data_f32(d), &fx["softmax.out"].f32s, "softmax");
     }
     // rms_norm
@@ -96,7 +96,7 @@ fn ops_match_numpy() {
         let x = tensor(&mut ctx, &fx["rmsnorm.x"]);
         let d = ctx.rms_norm(x, 1e-5);
         let g = build_forward(&ctx, d);
-        compute(&ctx, &g, 2);
+        compute(&mut ctx, &g, 2);
         assert_close(ctx.data_f32(d), &fx["rmsnorm.out"].f32s, "rmsnorm");
     }
     // rope
@@ -106,7 +106,7 @@ fn ops_match_numpy() {
         let pos = tensor(&mut ctx, &fx["rope.pos"]);
         let d = ctx.rope(x, pos, 8, 10000.0);
         let g = build_forward(&ctx, d);
-        compute(&ctx, &g, 2);
+        compute(&mut ctx, &g, 2);
         assert_close(ctx.data_f32(d), &fx["rope.out"].f32s, "rope");
     }
     // cross_entropy
@@ -116,7 +116,7 @@ fn ops_match_numpy() {
         let tg = tensor(&mut ctx, &fx["xent.targets"]);
         let d = ctx.cross_entropy_loss(lg, tg);
         let g = build_forward(&ctx, d);
-        compute(&ctx, &g, 2);
+        compute(&mut ctx, &g, 2);
         assert_close(ctx.data_f32(d), &fx["xent.out"].f32s, "xent");
     }
 }

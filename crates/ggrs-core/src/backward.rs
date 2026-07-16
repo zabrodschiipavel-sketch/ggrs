@@ -19,6 +19,9 @@ pub struct Backward {
 /// * `gf` — forward-граф (нужен для топологического обхода).
 /// * `loss` — тензор-скаляр (выход функции потерь).
 ///
+/// ВАЖНО: вызывать не более ОДНОГО раза на контекст — повторный вызов продублирует
+/// узлы градиентов и молча испортит граф (арена и список тензоров только растут).
+///
 /// Возвращает `Backward`, где `grads` отображает каждый узел исходного графа в его градиент.
 /// Контракт: `grads[loss]` — новый F32-тензор формы loss, залитый единицами.
 pub fn build_backward(ctx: &mut Context, gf: &Graph, loss: TensorId) -> Backward {
@@ -64,6 +67,14 @@ pub fn build_backward(ctx: &mut Context, gf: &Graph, loss: TensorId) -> Backward
             Op::Mul => {
                 let src0 = ctx.t(node_id).src[0].unwrap();
                 let src1 = ctx.t(node_id).src[1].unwrap();
+                // Broadcast-backward не реализован (нужен reduce-sum по broadcast-осям);
+                // молча неверный градиент хуже паники — запрещаем (аудит P1).
+                assert!(
+                    ctx.t(src0).same_shape(ctx.t(src1)),
+                    "Mul backward: broadcast не поддержан (формы {:?} и {:?})",
+                    ctx.t(src0).ne,
+                    ctx.t(src1).ne
+                );
                 // ∂a += mul(g, b)
                 let b = ctx.t(node_id).src[1].unwrap();
                 let g_mul_b = ctx.mul(g_dst, b);
@@ -101,17 +112,16 @@ pub fn build_backward(ctx: &mut Context, gf: &Graph, loss: TensorId) -> Backward
             Op::MulMat => {
                 let a = ctx.t(node_id).src[0].unwrap();
                 let b = ctx.t(node_id).src[1].unwrap();
-                // Проверка: только 2D (Фаза 2)
+                // 2D и 3D-с-равным-батчем; 4D/broadcast по батчу — Фаза 5/6
                 assert!(
-                    ctx.t(a).ne[2] == 1 && ctx.t(a).ne[3] == 1
-                        && ctx.t(b).ne[2] == 1 && ctx.t(b).ne[3] == 1,
-                    "mulmat backward: 3D — Фаза 3"
+                    ctx.t(a).ne[3] == 1 && ctx.t(b).ne[3] == 1
+                        && ctx.t(a).ne[2] == ctx.t(b).ne[2],
+                    "mulmat backward: поддержаны 2D и 3D с равным батчем (ne3==1, ne2 совпадают); 4D/broadcast — Фаза 5/6"
                 );
-                // ∂a = out_prod(b, g_dst)  — b[K,N] × g_dst[M,N] → [K,M]
+                // ∂a = out_prod(b, g_dst)
                 let ga = ctx.out_prod(b, g_dst);
                 accumulate(ctx, &mut grads, a, ga);
                 // ∂b = mul_mat(cont(transpose(a)), g_dst)
-                // transpose(a): [K,M] → [M,K]
                 let at = ctx.transpose(a);
                 let atc = ctx.cont(at);
                 let gb = ctx.mul_mat(atc, g_dst);
@@ -186,6 +196,13 @@ pub fn build_backward(ctx: &mut Context, gf: &Graph, loss: TensorId) -> Backward
                 // Если a не-contiguous, g_dst всё равно имеет ту же ne — pass-through.
                 let x = ctx.t(node_id).src[0].unwrap();
                 accumulate(ctx, &mut grads, x, g_dst);
+            }
+            Op::DiagMaskInf => {
+                // Маска — константная структура графа: градиент проходит на
+                // не-маскированных позициях, на маскированных = 0.
+                let x = ctx.t(node_id).src[0].unwrap();
+                let gx = ctx.diag_mask_zero(g_dst);
+                accumulate(ctx, &mut grads, x, gx);
             }
             _ => {
                 // Любой другой op с ненулевым grads[dst] — паника (задача T3+)

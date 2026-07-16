@@ -60,10 +60,11 @@ pub fn f32_to_f16(x: f32) -> u16 {
         // Сдвиг на 14 - new_exp позиций: 24-битная sig → 10-битная денормальная мантисса
         let shift = 14 - new_exp; // >= 14
 
-        if shift >= 24 {
-            // Слишком мало для представления даже в денормальном f16
-            // Значения [2^-25, 2^-24) молча уходят в 0 без RNE —
-            // это осознанное усечение на краю underflow (стандартное поведение).
+        if shift >= 25 {
+            // Меньше половины минимального денормала f16 (< 2^-25): RNE даёт 0.
+            // (Ранний return также защищает сдвиги ≥ 32 от переполнения.)
+            // shift == 24 (значения [2^-25, 2^-24)) корректно обрабатывается общим
+            // путём ниже: guard = старший бит sig, mant_10 = 0 — аудит P2.
             return sign;
         }
 
@@ -155,7 +156,8 @@ impl DType {
     pub fn row_size(self, ne0: usize) -> usize {
         let bs = self.blck_size();
         assert!(ne0.is_multiple_of(bs), "ggrs: ne0={} не кратен blck_size={}", ne0, bs);
-        ne0 / bs * self.type_size()
+        // checked: переполнение в release молча заворачивается (аудит P0)
+        (ne0 / bs).checked_mul(self.type_size()).expect("ggrs: переполнение row_size")
     }
 }
 

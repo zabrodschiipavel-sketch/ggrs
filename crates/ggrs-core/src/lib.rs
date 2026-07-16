@@ -20,4 +20,4 @@ pub use graph::{Graph, build_forward};
 pub use compute::compute;
 pub use compute::compute_profiled;
 pub use backward::{Backward, build_backward};
-pub use optim::{AdamW, LrSchedule};
+pub use optim::{AdamW, GradAccum, LrSchedule};

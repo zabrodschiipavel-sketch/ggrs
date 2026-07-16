@@ -3,6 +3,7 @@ use std::cell::UnsafeCell;
 use crate::dtype::DType;
 use crate::op::Op;
 use crate::tensor::{Tensor, TensorId, MAX_DIMS, MAX_SRC};
+use crate::util::Lcg;
 
 struct Arena {
     // u64-хранилище гарантирует выравнивание 8 байт для f32/i32-доступа
@@ -40,8 +41,14 @@ impl Context {
     pub fn new_tensor(&mut self, dtype: DType, ne: [usize; MAX_DIMS]) -> TensorId {
         let nb0 = dtype.type_size();
         let nb1 = dtype.row_size(ne[0]);
-        let nb = [nb0, nb1, nb1 * ne[1], nb1 * ne[1] * ne[2]];
-        let nbytes = dtype.row_size(ne[0]) * ne[1] * ne[2] * ne[3];
+        // Проверяемая арифметика layout: в release обычное умножение молча
+        // заворачивается, создавая тензор меньше заявленного (аудит P0).
+        // Валидация здесь делает инварианты (offset+idx*nb ≤ nbytes ≤ арена)
+        // безопасными для всех последующих не-checked вычислений.
+        let nb2 = nb1.checked_mul(ne[1]).expect("ggrs: переполнение layout (nb2)");
+        let nb3 = nb2.checked_mul(ne[2]).expect("ggrs: переполнение layout (nb3)");
+        let nbytes = nb3.checked_mul(ne[3]).expect("ggrs: переполнение layout (nbytes)");
+        let nb = [nb0, nb1, nb2, nb3];
         let offset = self.alloc(nbytes);
         self.push_tensor(Tensor {
             dtype, ne, nb, op: Op::None,
@@ -75,6 +82,11 @@ impl Context {
     }
     pub fn n_tensors(&self) -> usize {
         self.tensors.len()
+    }
+
+    /// Занято байт в арене (с учётом выравнивания аллокаций).
+    pub fn mem_used(&self) -> usize {
+        self.arena_used
     }
 
     pub(crate) fn base(&self) -> *mut u8 {
@@ -143,10 +155,29 @@ impl Context {
             *dst = crate::dtype::f32_to_f16(src);
         }
     }
+
+    /// Залить F32-тензор значениями N(mean, std) из rng. Тензор должен быть F32 и contiguous.
+    pub fn fill_normal(&mut self, id: TensorId, mean: f32, std: f32, rng: &mut Lcg) {
+        for v in self.data_f32_mut(id) {
+            *v = rng.next_normal(mean, std);
+        }
+    }
+
+    /// Залить F32-тензор равномерными значениями [lo, hi) из rng.
+    pub fn fill_uniform(&mut self, id: TensorId, lo: f32, hi: f32, rng: &mut Lcg) {
+        for v in self.data_f32_mut(id) {
+            *v = lo + (rng.next_f32() + 0.5) * (hi - lo);
+        }
+    }
+
     /// Строковое чтение через страйды — работает и для views/permute.
     pub fn get_f32(&self, id: TensorId, idx: [usize; MAX_DIMS]) -> f32 {
         let t = self.t(id);
         assert_eq!(t.dtype, DType::F32);
+        // Границы обязательны: смещение вне тензора читало бы чужую память арены (аудит P0).
+        for d in 0..MAX_DIMS {
+            assert!(idx[d] < t.ne[d], "get_f32: индекс {:?} вне формы {:?}", idx, t.ne);
+        }
         let off = t.offset + idx[0] * t.nb[0] + idx[1] * t.nb[1] + idx[2] * t.nb[2] + idx[3] * t.nb[3];
         unsafe { *(self.base().add(off) as *const f32) }
     }
@@ -440,22 +471,18 @@ impl Context {
         dst
     }
 
-    /// Outer product: dst[ix, iy] = Σ_{r=0..R} x[ix, r] * y[iy, r].
-    /// x: [Dx, R], y: [Dy, R] — оба 2D F32, dst: [Dx, Dy].
+    /// Outer product с батчем: dst[ix, iy, b] = Σ_{r} x[ix, r, b] · y[iy, r, b].
+    /// x: [Dx, R, B], y: [Dy, R, B] — 2D (B=1) или 3D F32; dst: [Dx, Dy, B].
     pub fn out_prod(&mut self, x: TensorId, y: TensorId) -> TensorId {
         let tx = self.t(x);
         let ty = self.t(y);
         assert_eq!(tx.dtype, DType::F32, "out_prod: x должен быть F32");
         assert_eq!(ty.dtype, DType::F32, "out_prod: y должен быть F32");
-        assert_eq!(
-            tx.ne[1], ty.ne[1],
-            "out_prod: несовпадение R"
-        );
-        assert_eq!(tx.ne[2], 1, "out_prod: только 2D");
-        assert_eq!(tx.ne[3], 1, "out_prod: только 2D");
-        assert_eq!(ty.ne[2], 1, "out_prod: только 2D");
-        assert_eq!(ty.ne[3], 1, "out_prod: только 2D");
-        let ne = [tx.ne[0], ty.ne[0], 1, 1];
+        assert_eq!(tx.ne[1], ty.ne[1], "out_prod: несовпадение R");
+        assert_eq!(tx.ne[2], ty.ne[2], "out_prod: несовпадение батча");
+        assert_eq!(tx.ne[3], 1, "out_prod: 4D не поддержан");
+        assert_eq!(ty.ne[3], 1, "out_prod: 4D не поддержан");
+        let ne = [tx.ne[0], ty.ne[0], tx.ne[2], 1];
         let dst = self.new_tensor(DType::F32, ne);
         let d = self.t_mut(dst);
         d.op = Op::OutProd;
@@ -511,6 +538,22 @@ impl Context {
         let d = self.t_mut(dst);
         d.op = Op::SumAllBack;
         d.src = [Some(g), None, None, None];
+        dst
+    }
+
+    /// Каузальная маска: по каждой строке (i1, i2) элементы i0 > i1 → -inf.
+    /// a — F32 [tk, tq, h, 1]; применяется к матрице attention перед soft_max.
+    pub fn diag_mask_inf(&mut self, a: TensorId) -> TensorId {
+        assert_eq!(self.t(a).dtype, DType::F32, "diag_mask_inf: только F32");
+        self.unary_op(Op::DiagMaskInf, a)
+        // op_params[0] остаётся 0 → режим -inf
+    }
+
+    /// Grad-режим той же маски: маскированные позиции → 0.0. Только для build_backward.
+    pub(crate) fn diag_mask_zero(&mut self, a: TensorId) -> TensorId {
+        assert_eq!(self.t(a).dtype, DType::F32, "diag_mask_zero: только F32");
+        let dst = self.unary_op(Op::DiagMaskInf, a);
+        self.t_mut(dst).op_params[0] = 1;
         dst
     }
 

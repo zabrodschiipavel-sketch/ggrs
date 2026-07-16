@@ -1,3 +1,3 @@
 [workspace]
 resolver = "2"
-members = ["crates/ggrs-core"]
+members = ["crates/ggrs-core", "crates/ggrs-model"]

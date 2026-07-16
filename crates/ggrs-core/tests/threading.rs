@@ -20,12 +20,12 @@ fn threads_produce_identical_results() {
     let mut c1 = Context::new(1 << 24);
     let r1 = build_case(&mut c1);
     let g1 = build_forward(&c1, r1);
-    compute(&c1, &g1, 1);
+    compute(&mut c1, &g1, 1);
 
     let mut c4 = Context::new(1 << 24);
     let r4 = build_case(&mut c4);
     let g4 = build_forward(&c4, r4);
-    compute(&c4, &g4, 4);
+    compute(&mut c4, &g4, 4);
 
     // деление по строкам не меняет порядок редукций → бит-в-бит
     assert_eq!(c1.data_f32(r1), c4.data_f32(r4));

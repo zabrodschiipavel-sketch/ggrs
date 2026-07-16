@@ -10,7 +10,7 @@ fn rope_rotates_pairs() {
     ctx.set_i32(pos, &[0, 1]);
     let r = ctx.rope(a, pos, 4, 10000.0);
     let g = build_forward(&ctx, r);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
     let v = ctx.data_f32(r);
     // pos=0: без изменений
     assert!((v[0] - 1.0).abs() < 1e-6 && v[1].abs() < 1e-6);
@@ -33,7 +33,7 @@ fn cross_entropy_uniform() {
     ctx.set_f32(targets, &[1., 0., 0., 0., 0., 1., 0., 0.]); // one-hot
     let l = ctx.cross_entropy_loss(logits, targets);
     let g = build_forward(&ctx, l);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
     // loss = -log(1/4) = ln4
     assert!((ctx.data_f32(l)[0] - 4.0f32.ln()).abs() < 1e-5);
 }

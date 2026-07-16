@@ -9,7 +9,7 @@ fn get_rows_basic() {
     ctx.set_i32(ids, &[2, 0]);
     let r = ctx.get_rows(a, ids);
     let g = build_forward(&ctx, r);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
     assert_eq!(ctx.data_f32(r), &[20., 21., 0., 1.]);
 }
 
@@ -21,7 +21,7 @@ fn cont_materializes_transpose() {
     let t = ctx.transpose(a); // логически [[0,3],[1,4],[2,5]]
     let c = ctx.cont(t);
     let g = build_forward(&ctx, c);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
     assert!(ctx.t(c).is_contiguous());
     assert_eq!(ctx.data_f32(c), &[0., 3., 1., 4., 2., 5.]);
 }

@@ -119,15 +119,15 @@ fn threading_backward_equivalence() {
     let mut c1 = Context::new(1 << 24);
     let (gf1, groot1, g_emb1, g_w1) = build_case(&mut c1);
 
-    compute(&c1, &gf1, 1);
-    compute(&c1, &groot1, 1);
+    compute(&mut c1, &gf1, 1);
+    compute(&mut c1, &groot1, 1);
 
     // --- 4 потока ---
     let mut c4 = Context::new(1 << 24);
     let (gf4, groot4, g_emb4, g_w4) = build_case(&mut c4);
 
-    compute(&c4, &gf4, 4);
-    compute(&c4, &groot4, 4);
+    compute(&mut c4, &gf4, 4);
+    compute(&mut c4, &groot4, 4);
 
     // --- бит-в-бит сравнение градиентов ---
     assert_eq!(

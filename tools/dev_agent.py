@@ -1,8 +1,9 @@
-"""Агент-исполнитель на DeepSeek с песочницей инструментов для репо ggrs.
+"""Агент-исполнитель (DeepSeek / Gemini) с песочницей инструментов для репо ggrs.
 
 Использование:
   python dev_agent.py <model> <system_file> <task_file> <report_file>
     model: deepseek-v4-flash (лайт) | deepseek-v4-flash:thinking | deepseek-v4-pro (всегда thinking)
+         | gemini-* (например gemini-3.5-flash, gemini-flash-latest, gemini-pro-latest)
 
 Инструменты модели: read_file / write_file / list_dir (только внутри репо,
 .git запрещён) и run_cargo (белый список подкоманд). Итерируется сама до
@@ -15,8 +16,14 @@ import subprocess
 import sys
 import urllib.request
 
-SECRETS = json.load(open(r"C:\Users\pavel\.ggrs-secrets.json"))
+# Windows-консоль по умолчанию cp1252 — кириллица в print роняет процесс.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+# utf-8-sig: переживает BOM, если файл пересохранили виндовым редактором
+SECRETS = json.load(open(r"C:\Users\pavel\.ggrs-secrets.json", encoding="utf-8-sig"))
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 REPO = r"C:\Users\pavel\ggrs"
 MAX_ROUNDS = 24
 CARGO = os.path.expandvars(r"%USERPROFILE%\.cargo\bin\cargo.exe")
@@ -147,6 +154,72 @@ def deepseek(model, messages, allow_tools=True):
         return json.loads(r.read().decode())
 
 
+# ── Gemini (нативный generateContent + function calling) ──────────────────
+
+def _gemini_tools():
+    # Тот же JSON Schema, что у OpenAI-инструментов
+    return [{"functionDeclarations": [t["function"] for t in TOOLS]}]
+
+
+def gemini(model, system_text, contents, allow_tools=True):
+    payload = {
+        "system_instruction": {"parts": [{"text": system_text}]},
+        "contents": contents,
+        "generationConfig": {"maxOutputTokens": 16000},
+    }
+    if allow_tools:
+        payload["tools"] = _gemini_tools()
+    req = urllib.request.Request(
+        GEMINI_URL.format(model=model),
+        data=json.dumps(payload).encode(),
+        headers={"x-goog-api-key": SECRETS["gemini"], "Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=900) as r:
+        return json.loads(r.read().decode())
+
+
+def main_gemini(model, system_file, task_file, report_file):
+    system_text = open(system_file, encoding="utf-8").read()
+    contents = [{"role": "user", "parts": [{"text": open(task_file, encoding="utf-8").read()}]}]
+    log = open(report_file + ".log", "w", encoding="utf-8")
+    usage = {"prompt": 0, "out": 0}
+    for rnd in range(MAX_ROUNDS):
+        last = rnd == MAX_ROUNDS - 1
+        if last:
+            contents.append({"role": "user", "parts": [{"text": "Лимит шагов. Напиши финальный отчёт о сделанном и статусе тестов."}]})
+        resp = gemini(model, system_text, contents, allow_tools=not last)
+        um = resp.get("usageMetadata", {})
+        usage["prompt"] += um.get("promptTokenCount", 0)
+        usage["out"] += um.get("candidatesTokenCount", 0)
+        cand = (resp.get("candidates") or [{}])[0]
+        content = cand.get("content") or {"role": "model", "parts": []}
+        contents.append(content)  # эхо модельного хода как есть (с thoughtSignature)
+        calls = [p["functionCall"] for p in content.get("parts", []) if "functionCall" in p]
+        if not calls:
+            text = "".join(p.get("text", "") for p in content.get("parts", []))
+            with open(report_file, "w", encoding="utf-8", newline="\n") as f:
+                f.write(text)
+            print(f"DONE rounds={rnd + 1} usage={usage}")
+            log.close()
+            return
+        fr_parts = []
+        for fc in calls:
+            name = fc.get("name", "")
+            args = fc.get("args") or {}
+            try:
+                result = FNS[name](**args)
+            except Exception as e:  # noqa: BLE001
+                result = {"error": str(e)}
+            brief = json.dumps(args, ensure_ascii=False)[:150]
+            print(f"  [{rnd}] {name}({brief})")
+            log.write(f"[{rnd}] {name}({brief}) -> {json.dumps(result, ensure_ascii=False)[:300]}\n")
+            log.flush()
+            fr_parts.append({"functionResponse": {"name": name, "response": {"result": result}}})
+        contents.append({"role": "user", "parts": fr_parts})
+    print("MAX_ROUNDS exceeded")
+    sys.exit(1)
+
+
 def main(model, system_file, task_file, report_file):
     messages = [
         {"role": "system", "content": open(system_file, encoding="utf-8").read()},
@@ -194,4 +267,5 @@ def main(model, system_file, task_file, report_file):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
+    entry = main_gemini if sys.argv[1].startswith("gemini") else main
+    entry(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])

@@ -1,12 +1,13 @@
 name: CI
 on:
   push:
-    branches: [master]
+    branches: [master, 'phase-*']
   pull_request:
 
 jobs:
   test:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
@@ -16,6 +17,6 @@ jobs:
         with:
           components: clippy
       - name: Тесты
-        run: cargo test -p ggrs-core
+        run: cargo test --workspace
       - name: Clippy (строгий)
-        run: cargo clippy -p ggrs-core --tests -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings

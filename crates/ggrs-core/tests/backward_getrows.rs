@@ -129,8 +129,8 @@ fn getrows_back_zero_untouched() {
     let grad_table = bw.grads[&table];
 
     // Вычисляем backward
-    compute(&ctx, &gf, 1);
-    compute(&ctx, &groot, 1);
+    compute(&mut ctx, &gf, 1);
+    compute(&mut ctx, &groot, 1);
 
     let grads = ctx.data_f32(grad_table);
 

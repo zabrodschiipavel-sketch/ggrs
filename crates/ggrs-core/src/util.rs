@@ -11,6 +11,19 @@ impl Lcg {
         self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         ((self.0 >> 33) as f32 / (1u64 << 31) as f32) - 0.5
     }
+
+    /// Нормальное распределение N(mean, std) методом Бокса–Мюллера.
+    /// Использует два вызова next_f32 (u = x + 0.5 ∈ [0,1)); второе значение пары отбрасывается.
+    pub fn next_normal(&mut self, mean: f32, std: f32) -> f32 {
+        // u1 ∈ (0,1): пересэмплируем нули, ln(0) недопустим
+        let mut u1 = self.next_f32() + 0.5;
+        while u1 <= f32::EPSILON {
+            u1 = self.next_f32() + 0.5;
+        }
+        let u2 = self.next_f32() + 0.5;
+        let z = (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos();
+        mean + std * z
+    }
 }
 
 #[cfg(test)]
