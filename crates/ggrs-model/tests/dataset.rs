@@ -128,3 +128,61 @@ fn val_windows_stable_and_disjoint_starts() {
     // Всего n окон
     assert_eq!(w1.len(), n, "число окон != n");
 }
+
+// ── Тест 5: load отвергает неверный размер файла ─────────────────────────────
+
+#[test]
+fn load_rejects_wrong_size() {
+    let path = tmp_path("ggrs_test_wrong_size.bin");
+    let _ = std::fs::remove_file(&path);
+
+    // Заголовок: GGTK + vocab_size=1000 + n_tokens=1000, но данных только 10 байт
+    let mut buf = Vec::new();
+    buf.extend_from_slice(b"GGTK");
+    buf.extend_from_slice(&1000u32.to_le_bytes());
+    buf.extend_from_slice(&1000u64.to_le_bytes()); // обещано 1000 токенов = 2000 байт
+    buf.extend_from_slice(&[0u8; 10]); // а дано только 10 байт
+    std::fs::write(&path, &buf).unwrap();
+
+    let result = TokenBin::load(&path);
+    assert!(result.is_err(), "wrong file size must be rejected");
+
+    let _ = std::fs::remove_file(&path);
+}
+
+// ── Тест 6: load отвергает токен вне словаря ─────────────────────────────────
+
+#[test]
+fn load_rejects_token_out_of_vocab() {
+    let path = tmp_path("ggrs_test_out_of_vocab.bin");
+    let _ = std::fs::remove_file(&path);
+
+    // vocab_size=300, токены: 400, 10, 20 (400 >= 300 → ошибка)
+    let mut buf = Vec::new();
+    buf.extend_from_slice(b"GGTK");
+    buf.extend_from_slice(&300u32.to_le_bytes()); // vocab_size
+    buf.extend_from_slice(&3u64.to_le_bytes()); // 3 токена
+    buf.extend_from_slice(&400u16.to_le_bytes()); // вне словаря!
+    buf.extend_from_slice(&10u16.to_le_bytes());
+    buf.extend_from_slice(&20u16.to_le_bytes());
+    std::fs::write(&path, &buf).unwrap();
+
+    let result = TokenBin::load(&path);
+    assert!(result.is_err(), "token >= vocab_size must be rejected");
+
+    let _ = std::fs::remove_file(&path);
+}
+
+// ── Тест 7: load отвергает неверный magic ────────────────────────────────────
+
+#[test]
+fn load_rejects_bad_magic() {
+    let path = tmp_path("ggrs_test_bad_magic.bin");
+    let _ = std::fs::remove_file(&path);
+
+    std::fs::write(&path, b"XXXX\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+        .unwrap();
+    assert!(TokenBin::load(&path).is_err());
+
+    let _ = std::fs::remove_file(&path);
+}

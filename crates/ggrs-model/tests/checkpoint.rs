@@ -79,3 +79,80 @@ fn shape_mismatch_errors() {
     assert!(load_checkpoint(&path, &mut ctx2, &named2).is_err());
     let _ = std::fs::remove_file(&path);
 }
+
+/// Транзакционность: обрезанный файл не меняет Context.
+#[test]
+fn load_is_transactional() {
+    let path = tmp_path("ggrs_ckpt_tx.ggrs");
+    let trunc_path = tmp_path("ggrs_ckpt_tx_trunc.ggrs");
+
+    // Сохраняем два F32-тензора
+    let mut ctx = Context::new(1 << 20);
+    let a = ctx.new_tensor_1d(DType::F32, 4);
+    let b = ctx.new_tensor_1d(DType::F32, 4);
+    ctx.set_f32(a, &[1.0, 2.0, 3.0, 4.0]);
+    ctx.set_f32(b, &[5.0, 6.0, 7.0, 8.0]);
+    let named: [(&str, TensorId); 2] = [("a", a), ("b", b)];
+    let extra = CheckpointExtra {
+        step: 100,
+        rng: 200,
+        opt: vec![],
+    };
+    save_checkpoint(&path, &ctx, &named, &extra).unwrap();
+
+    // Читаем файл и обрезаем до 60%
+    let bytes = std::fs::read(&path).unwrap();
+    let truncated_len = (bytes.len() as f64 * 0.6) as usize;
+    let truncated = &bytes[..truncated_len];
+    std::fs::write(&trunc_path, truncated).unwrap();
+
+    // Свежий ctx с маркерными данными (все 7.0)
+    let mut ctx2 = Context::new(1 << 20);
+    let a2 = ctx2.new_tensor_1d(DType::F32, 4);
+    let b2 = ctx2.new_tensor_1d(DType::F32, 4);
+    ctx2.set_f32(a2, &[7.0; 4]);
+    ctx2.set_f32(b2, &[7.0; 4]);
+    let named2: [(&str, TensorId); 2] = [("a", a2), ("b", b2)];
+
+    // Загрузка обрезанного файла → Err
+    let result = load_checkpoint(&trunc_path, &mut ctx2, &named2);
+    assert!(result.is_err(), "truncated checkpoint must produce error");
+
+    // Context НЕ изменился (всё ещё 7.0)
+    assert_eq!(
+        ctx2.data_f32(a2),
+        &[7.0; 4],
+        "ctx data changed despite failed load"
+    );
+    assert_eq!(
+        ctx2.data_f32(b2),
+        &[7.0; 4],
+        "ctx data changed despite failed load"
+    );
+
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&trunc_path);
+}
+
+/// Абсурдная длина имени → Err без OOM.
+#[test]
+fn load_rejects_absurd_name_len() {
+    let path = tmp_path("ggrs_ckpt_absurd_name.ggrs");
+
+    // Собираем файл вручную: magic + version + n_tensors=1 + name_len=0xFFFFFFFF
+    let mut buf = Vec::new();
+    buf.extend_from_slice(b"GGRS");
+    buf.extend_from_slice(&1u32.to_le_bytes()); // version
+    buf.extend_from_slice(&1u32.to_le_bytes()); // 1 тензор
+    buf.extend_from_slice(&0xFFFFFFFFu32.to_le_bytes()); // name_len = 4ГБ — абсурд
+                                                        // остальное неважно, упадёт на name_len
+    std::fs::write(&path, &buf).unwrap();
+
+    let mut ctx = Context::new(1 << 16);
+    let x = ctx.new_tensor_1d(DType::F32, 2);
+    let named: [(&str, TensorId); 1] = [("x", x)];
+    let result = load_checkpoint(&path, &mut ctx, &named);
+    assert!(result.is_err(), "absurd name_len must be rejected");
+
+    let _ = std::fs::remove_file(&path);
+}

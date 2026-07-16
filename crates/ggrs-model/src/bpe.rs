@@ -246,6 +246,8 @@ impl Bpe {
 
         let num_merges = vocab_size - 256;
         let mut merges: Vec<(u16, u16)> = Vec::with_capacity(num_merges);
+        // Счётчик прочитанных слияний (без пустых строк)
+        let mut merge_i = 0usize;
 
         for line in reader.lines() {
             let line = line?;
@@ -266,7 +268,22 @@ impl Bpe {
             let right: u16 = parts[1].parse().map_err(|_| {
                 io::Error::new(io::ErrorKind::InvalidData, "BPE: неверный right в слиянии")
             })?;
+
+            // Валидация: на шаге merge_i (порождающем токен 256+merge_i)
+            // оба ID обязаны быть УЖЕ существующими токенами.
+            let max_valid = 256u16 + merge_i as u16;
+            if left >= max_valid || right >= max_valid {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "BPE: слияние {} ссылается на несуществующий токен (left={}, right={})",
+                        merge_i, left, right
+                    ),
+                ));
+            }
+
             merges.push((left, right));
+            merge_i += 1;
         }
 
         if merges.len() != num_merges {

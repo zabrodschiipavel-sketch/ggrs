@@ -29,7 +29,10 @@ impl TokenBin {
     /// Прочитать файл формата GGTK (magic "GGTK", vocab_size u32, n_tokens u64, данные u16 LE).
     /// Несовпадение magic/размера → io::Error.
     pub fn load(path: &Path) -> io::Result<TokenBin> {
-        let mut r = BufReader::new(File::open(path)?);
+        let file = File::open(path)?;
+        let file_len = file.metadata()?.len();
+        let mut r = BufReader::new(file);
+
         let mut magic = [0u8; 4];
         r.read_exact(&mut magic)?;
         if &magic != GGTK_MAGIC {
@@ -38,15 +41,52 @@ impl TokenBin {
         let mut b4 = [0u8; 4];
         r.read_exact(&mut b4)?;
         let vocab_size = u32::from_le_bytes(b4);
+
         let mut b8 = [0u8; 8];
         r.read_exact(&mut b8)?;
-        let n = u64::from_le_bytes(b8) as usize;
-        let mut bytes = vec![0u8; n * 2];
+        let n_u64 = u64::from_le_bytes(b8);
+
+        // n_tokens должен влезать в usize (нужно для 32-бит платформ)
+        let n: usize = usize::try_from(n_u64).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "GGTK: n_tokens не влезает в usize",
+            )
+        })?;
+
+        // Предотвращение переполнения при вычислении размера данных
+        let data_size = n.checked_mul(2).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "GGTK: переполнение n_tokens * 2",
+            )
+        })?;
+
+        // Проверка полного размера файла: 4 (magic) + 4 (vocab_size) + 8 (n_tokens) + data_size
+        let expected_size = 16u64 + data_size as u64;
+        if file_len != expected_size {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "GGTK: размер файла не соответствует n_tokens",
+            ));
+        }
+
+        let mut bytes = vec![0u8; data_size];
         r.read_exact(&mut bytes)?;
-        let tokens = bytes
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
-            .collect();
+
+        // Парсинг токенов с проверкой каждого: токен < vocab_size
+        let mut tokens = Vec::with_capacity(n);
+        for chunk in bytes.chunks_exact(2) {
+            let t = u16::from_le_bytes([chunk[0], chunk[1]]);
+            if (t as u32) >= vocab_size {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "GGTK: токен вне словаря",
+                ));
+            }
+            tokens.push(t);
+        }
+
         Ok(TokenBin { tokens, vocab_size })
     }
 

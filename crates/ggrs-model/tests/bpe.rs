@@ -230,3 +230,23 @@ fn encode_cache_reuses_chunks() {
     let decoded = bpe.decode(&encoded);
     assert_eq!(decoded, text);
 }
+
+// ── Тест 10: load отвергает ссылку вперёд ──────────────────────────────────
+
+#[test]
+fn load_rejects_forward_reference() {
+    let path = std::env::temp_dir().join("ggrs_bpe_forward_ref.txt");
+    // vocab_size=258 → 2 слияния.
+    // Первое слияние "300 65": 300 >= 256+0 — ссылка вперёд, невалид.
+    // Второе слияние "65 66" валидно, но до него не дойдём.
+    std::fs::write(&path, b"258\n300 65\n65 66\n").unwrap();
+    assert!(Bpe::load(&path).is_err(), "forward reference must be rejected");
+    let _ = std::fs::remove_file(&path);
+
+    // Дополнительно: проверка при 257 (одно слияние) с референсом на несуществующий токен
+    let path2 = std::env::temp_dir().join("ggrs_bpe_forward_ref2.txt");
+    // Одно слияние i=0 → max_valid=256. left=255 валидно (байт), right=300 нет (≥256).
+    std::fs::write(&path2, b"257\n255 300\n").unwrap();
+    assert!(Bpe::load(&path2).is_err(), "right must be < 256 for first merge");
+    let _ = std::fs::remove_file(&path2);
+}
