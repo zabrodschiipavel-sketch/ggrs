@@ -117,7 +117,7 @@ fn train_smoke() {
         opt.lr = sched.at(step, STEPS);
 
         // Прямой проход
-        compute(&ctx, &gf, 1);
+        compute(&mut ctx, &gf, 1);
 
         // Фиксируем loss на шаге 0 (после compute gf, до opt.step)
         if step == 0 {
@@ -125,7 +125,7 @@ fn train_smoke() {
         }
 
         // Обратный проход (вычисляем градиенты)
-        compute(&ctx, &groot, 1);
+        compute(&mut ctx, &groot, 1);
 
         // Шаг оптимизатора
         let (norm, skipped) = opt.step(&mut ctx, &bw);

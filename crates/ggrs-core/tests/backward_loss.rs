@@ -125,8 +125,8 @@ fn ce_back_rows_scaling() {
     let groot = build_forward(&ctx, bw.root);
 
     // Вычислить forward и backward
-    compute(&ctx, &gf, 1);
-    compute(&ctx, &groot, 1);
+    compute(&mut ctx, &gf, 1);
+    compute(&mut ctx, &groot, 1);
 
     let grad = bw.grads[&logits];
     let grad_data = ctx.data_f32(grad);

@@ -21,7 +21,7 @@ fn mulmat_3d_per_head() {
     let dst = ctx.mul_mat(a, b);
     assert_eq!(ctx.t(dst).ne, [3, 2, 2, 1]);
     let g = build_forward(&ctx, dst);
-    compute(&ctx, &g, 2);
+    compute(&mut ctx, &g, 2);
     
     // наивное вычисление: dst[i0,i1,i2,0] = sum_k a[k + i0*4 + i2*16] * b[k + i1*4 + i2*8]
     // layout: ne0 самое быстрое, т.е. k fastest, затем m/n, затем h
@@ -68,7 +68,7 @@ fn rope_multihead() {
     ctx.set_i32(pos, &[0, 1, 2]);
     let r = ctx.rope(a, pos, 4, 10000.0f32);
     let g = build_forward(&ctx, r);
-    compute(&ctx, &g, 2);
+    compute(&mut ctx, &g, 2);
 
     // Проверка pos=0: обе головы неизменны
     let mut ok_pos0 = true;

@@ -25,7 +25,7 @@ fn profile_returns_timings() {
     let s = ctx.soft_max(d);
     let graph = build_forward(&ctx, s);
 
-    let timings = compute_profiled(&ctx, &graph, 1);
+    let timings = compute_profiled(&mut ctx, &graph, 1);
 
     // В графе: a (None, view), b (None, view), d (MulMat, compute), s (SoftMax, compute)
     // + a, b могут быть Param/None... проверим только не-view узлы.
@@ -80,10 +80,10 @@ fn profiled_equals_plain() {
     let g2 = build_forward(&ctx_prof, s2);
 
     // Plain compute
-    compute(&ctx_plain, &g1, 1);
+    compute(&mut ctx_plain, &g1, 1);
 
     // Profiled compute (через compute_profiled напрямую)
-    let _timings = compute_profiled(&ctx_prof, &g2, 1);
+    let _timings = compute_profiled(&mut ctx_prof, &g2, 1);
 
     // Сравнение
     assert_eq!(ctx_plain.data_f32(s1), ctx_prof.data_f32(s2),

@@ -7,7 +7,7 @@ fn softmax_rows() {
     ctx.set_f32(a, &[1., 2., 3., 1000., 1000., 1000.]);
     let s = ctx.soft_max(a);
     let g = build_forward(&ctx, s);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
     let v = ctx.data_f32(s);
     let e = |x: f32| x.exp();
     let z = e(1.) + e(2.) + e(3.);
@@ -27,7 +27,7 @@ fn softmax_fully_masked_row_is_zero_not_nan() {
     ctx.set_f32(a, &[f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY, 1., 2., 3.]);
     let s = ctx.soft_max(a);
     let g = build_forward(&ctx, s);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
     let v = ctx.data_f32(s);
     assert_eq!(&v[0..3], &[0.0, 0.0, 0.0], "замаскированная строка должна дать нули");
     assert!(v[3..6].iter().all(|x| x.is_finite()));
@@ -40,7 +40,7 @@ fn rms_norm_row() {
     ctx.set_f32(a, &[1., 2., 3., 4.]);
     let r = ctx.rms_norm(a, 1e-5);
     let g = build_forward(&ctx, r);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
     let ms = (1.0f32 + 4.0 + 9.0 + 16.0) / 4.0;
     let inv = 1.0 / (ms + 1e-5).sqrt();
     let v = ctx.data_f32(r);

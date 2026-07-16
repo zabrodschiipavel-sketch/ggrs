@@ -7,12 +7,18 @@ use crate::graph::Graph;
 use crate::kernels;
 use crate::op::Op;
 
-pub fn compute(ctx: &Context, graph: &Graph, n_threads: usize) {
+/// Исполнить граф. Принимает `&mut Context`: исполнение пишет в тензоры арены,
+/// и эксклюзивное заимствование на уровне типов запрещает два одновременных
+/// compute на одном контексте (data race — аудит P0). Внутри один вызов
+/// расшаривает контекст между worker-потоками (Arena: Sync); дисциплина
+/// не-алиасинга по строкам — на ядрах, как в ggml.
+pub fn compute(ctx: &mut Context, graph: &Graph, n_threads: usize) {
+    let ctx: &Context = &*ctx; // внутренняя деградация до разделяемой ссылки
     // Профилирование по env GGRS_PROFILE=1 (let-chain — edition 2024)
     if let Ok(val) = std::env::var("GGRS_PROFILE")
         && val == "1"
     {
-        let timings = compute_profiled(ctx, graph, n_threads);
+        let timings = profiled_inner(ctx, graph);
         let total_ms: f64 = timings.iter().map(|(_, _, ms)| ms).sum();
         eprintln!("{:12} {:>5} {:>10} {:>8}", "Op", "calls", "ms", "%");
         for (op, calls, ms) in &timings {
@@ -46,7 +52,12 @@ pub fn compute(ctx: &Context, graph: &Graph, n_threads: usize) {
 /// Исполняет граф как compute, но замеряет per-op время.
 /// Однопоточный путь (n_threads игнорируется в замере).
 /// Возвращает Vec, отсортированный по total_ms убыванию.
-pub fn compute_profiled(ctx: &Context, graph: &Graph, _n_threads: usize) -> Vec<(Op, u32, f64)> {
+/// `&mut` — по той же причине, что у compute (эксклюзивность исполнения).
+pub fn compute_profiled(ctx: &mut Context, graph: &Graph, _n_threads: usize) -> Vec<(Op, u32, f64)> {
+    profiled_inner(&*ctx, graph)
+}
+
+fn profiled_inner(ctx: &Context, graph: &Graph) -> Vec<(Op, u32, f64)> {
     let mut accum: HashMap<Op, (u32, f64)> = HashMap::new();
 
     for &id in &graph.nodes {

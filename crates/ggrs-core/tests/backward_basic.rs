@@ -148,7 +148,7 @@ fn test_collect_chain() {
     let collected = ctx.collect(&[a, b, c, d, e]);
     let gf = build_forward(&ctx, collected);
     // compute должен пройти без ошибок (no-op ядра)
-    compute(&ctx, &gf, 1);
+    compute(&mut ctx, &gf, 1);
 }
 
 // ----------------------------------------------------------------

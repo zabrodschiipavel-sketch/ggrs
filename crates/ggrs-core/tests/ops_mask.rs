@@ -80,7 +80,7 @@ fn diag_mask_forward_2d() {
 
     let mask = ctx.diag_mask_inf(a);
     let gf = build_forward(&ctx, mask);
-    compute(&ctx, &gf, 1);
+    compute(&mut ctx, &gf, 1);
 
     // Проверка: i0 > i1 → NEG_INFINITY, иначе исходное значение
     for i1 in 0..4 {
@@ -112,7 +112,7 @@ fn diag_mask_forward_3d() {
 
     let mask = ctx.diag_mask_inf(a);
     let gf = build_forward(&ctx, mask);
-    compute(&ctx, &gf, 1);
+    compute(&mut ctx, &gf, 1);
 
     // Проверка обеих голов
     for i2 in 0..2 {
@@ -148,7 +148,7 @@ fn diag_mask_softmax_row0() {
     let mask = ctx.diag_mask_inf(a);
     let sm = ctx.soft_max(mask);
     let gf = build_forward(&ctx, sm);
-    compute(&ctx, &gf, 1);
+    compute(&mut ctx, &gf, 1);
 
     // Строка запроса i1=0: только i0=0 валидна → softmax = [1, 0, 0, 0]
     for i0 in 0..4 {
@@ -208,8 +208,8 @@ fn diag_mask_threads_parity() {
     let gf1 = build_forward(&ctx1, mask1);
     let gf2 = build_forward(&ctx2, mask2);
 
-    compute(&ctx1, &gf1, 1);
-    compute(&ctx2, &gf2, 4);
+    compute(&mut ctx1, &gf1, 1);
+    compute(&mut ctx2, &gf2, 4);
 
     // Сравнение поэлементно через get_f32
     for i3 in 0..1 {

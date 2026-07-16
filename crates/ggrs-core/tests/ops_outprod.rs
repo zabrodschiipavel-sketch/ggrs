@@ -38,7 +38,7 @@ fn outprod_matches_naive() {
 
     let d = ctx.out_prod(x, y);
     let g = build_forward(&ctx, d);
-    compute(&ctx, &g, 2);
+    compute(&mut ctx, &g, 2);
 
     let out = ctx.data_f32(d);
     // out — [Dx, Dy] в row-major (строка iy)
@@ -70,7 +70,7 @@ fn outprod_symmetric() {
 
     let d = ctx.out_prod(x, x);
     let g = build_forward(&ctx, d);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
 
     let out = ctx.data_f32(d);
     // out — [n, n] в row-major; dst[i,j] == dst[j,i]
@@ -121,7 +121,7 @@ fn out_prod_3d_vs_naive() {
     let d = ctx.out_prod(x, y);
     assert_eq!(ctx.t(d).ne, [dx, dy, b, 1]);
     let g = build_forward(&ctx, d);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
 
     // dst: [dx, dy, b] — row-major: самый быстрый ix, затем iy, затем батч
     for ib in 0..b {
@@ -169,8 +169,8 @@ fn out_prod_3d_threads_parity() {
     let g1 = build_forward(&ctx1, d1);
     let g2 = build_forward(&ctx2, d2);
 
-    compute(&ctx1, &g1, 1);
-    compute(&ctx2, &g2, 4);
+    compute(&mut ctx1, &g1, 1);
+    compute(&mut ctx2, &g2, 4);
 
     let out1 = ctx1.data_f32(d1);
     let out2 = ctx2.data_f32(d2);

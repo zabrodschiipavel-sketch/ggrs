@@ -223,7 +223,7 @@ fn gradcheck_mulmat_softmax_3d() {
     ctx.set_param(b);
 
     let gf = build_forward(&ctx, loss);
-    compute(&ctx, &gf, 1);
+    compute(&mut ctx, &gf, 1);
     let bw = build_backward(&mut ctx, &gf, loss);
     let groot = build_forward(&ctx, bw.root);
 
@@ -286,7 +286,7 @@ fn gradcheck_attention_mini_3d() {
     let gf = build_forward(&ctx, loss);
 
     // Вычисляем forward один раз, чтобы soft_max и т.п. имели актуальные значения
-    compute(&ctx, &gf, 1);
+    compute(&mut ctx, &gf, 1);
 
     let bw = build_backward(&mut ctx, &gf, loss);
     let groot = build_forward(&ctx, bw.root);

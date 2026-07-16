@@ -15,7 +15,7 @@ fn add_mul_scale() {
     let m = ctx.mul(s, a);
     let r = ctx.scale(m, 0.5);
     let g = build_forward(&ctx, r);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
     assert_eq!(ctx.data_f32(r), &[5.5, 22.0, 49.5, 88.0, 137.5]);
 }
 
@@ -29,7 +29,7 @@ fn add_broadcast_rows() {
     ctx.set_f32(m, &[0., -1., -2., -3.]);
     let r = ctx.add(a, m);
     let g = build_forward(&ctx, r);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
     assert_eq!(ctx.data_f32(r), &[0., -1., -2., -3., 0., -1., -2., -3., 0., -1., -2., -3.]);
 }
 
@@ -41,9 +41,9 @@ fn silu_gelu_values() {
     let s = ctx.silu(a);
     let g_ = ctx.gelu(a);
     let graph = build_forward(&ctx, s);
-    compute(&ctx, &graph, 1);
+    compute(&mut ctx, &graph, 1);
     let graph2 = build_forward(&ctx, g_);
-    compute(&ctx, &graph2, 1);
+    compute(&mut ctx, &graph2, 1);
     let sv = ctx.data_f32(s);
     // silu(x) = x*sigmoid(x): silu(-1) ≈ -0.26894, silu(0)=0, silu(2) ≈ 1.76159
     assert!((sv[0] + 0.26894143).abs() < 1e-5);

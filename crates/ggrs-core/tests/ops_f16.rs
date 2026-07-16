@@ -19,13 +19,13 @@ fn get_rows_f16_matches_f32() {
     // get_rows от F32
     let r_f32 = ctx.get_rows(emb_f32, ids);
     let g = build_forward(&ctx, r_f32);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
     let expected = ctx.data_f32(r_f32).to_vec();
 
     // get_rows от F16
     let r_f16 = ctx.get_rows(emb_f16, ids);
     let g2 = build_forward(&ctx, r_f16);
-    compute(&ctx, &g2, 1);
+    compute(&mut ctx, &g2, 1);
     let got = ctx.data_f32(r_f16);
 
     assert_eq!(got.len(), expected.len(), "get_rows: разные длины");
@@ -53,7 +53,7 @@ fn cont_f16_to_f32() {
     // cont_f32 сделает F32-копию из страйдового F16
     let c = ctx.cont_f32(t);
     let g = build_forward(&ctx, c);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
 
     // Проверка: все 6 значений через data_f32
     let data = ctx.data_f32(c);
@@ -90,7 +90,7 @@ fn cont_f16_roundtrip() {
     // cont (F16 -> F16)
     let c = ctx.cont(a);
     let g = build_forward(&ctx, c);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
 
     let after_u16 = ctx.data_u16(c);
     assert_eq!(
@@ -118,7 +118,7 @@ fn mulmat_rejects_f16_a() {
     ctx.set_f32(b, &[1.0; 12]);
     let d = ctx.mul_mat(a, b);
     let g = build_forward(&ctx, d);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
 }
 
 /// Край subnormal-диапазона f32→f16: RNE на [2^-25, 2^-24) (аудит P2).

@@ -96,7 +96,7 @@ fn transformer_block_forward() {
     let mut c1 = Context::new(1 << 24);
     let l1 = build(&mut c1);
     let g1 = build_forward(&c1, l1);
-    compute(&c1, &g1, 1);
+    compute(&mut c1, &g1, 1);
     let loss1 = c1.data_f32(l1)[0];
     assert!(loss1.is_finite(), "loss = {loss1}");
     // при случайных весах и vocab=32 loss ~ ln(32) ± немного
@@ -105,6 +105,6 @@ fn transformer_block_forward() {
     let mut c8 = Context::new(1 << 24);
     let l8 = build(&mut c8);
     let g8 = build_forward(&c8, l8);
-    compute(&c8, &g8, 8);
+    compute(&mut c8, &g8, 8);
     assert_eq!(loss1, c8.data_f32(l8)[0], "1 поток vs 8 потоков");
 }

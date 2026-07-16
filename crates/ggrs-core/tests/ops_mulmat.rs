@@ -10,7 +10,7 @@ fn mulmat_2x3_times_4x3() {
     ctx.set_f32(b, &[1., 0., 0., 0., 1., 0., 0., 0., 1., 1., 1., 1.]);
     let d = ctx.mul_mat(a, b);
     let g = build_forward(&ctx, d);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
     // dst[i0=строка a, i1=строка b]: dot(a_i0, b_i1)
     assert_eq!(ctx.data_f32(d), &[1., 4., 2., 5., 3., 6., 6., 15.]);
     assert_eq!(ctx.t(d).ne, [2, 4, 1, 1]);
@@ -28,7 +28,7 @@ fn mulmat_matches_naive_random() {
     ctx.set_f32(b, &bv);
     let d = ctx.mul_mat(a, b);
     let g = build_forward(&ctx, d);
-    compute(&ctx, &g, 1);
+    compute(&mut ctx, &g, 1);
     let out = ctx.data_f32(d);
     for i1 in 0..n {
         for i0 in 0..m {
