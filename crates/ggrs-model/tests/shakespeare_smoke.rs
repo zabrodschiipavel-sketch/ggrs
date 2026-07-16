@@ -8,6 +8,15 @@
 use ggrs_core::Context;
 use ggrs_model::{build_gpt, train, Bpe, GptConfig, TokenBin, TrainConfig};
 
+/// Клэмп числа потоков доступным параллелизмом — на CI-раннерах (2-4 vCPU)
+/// `cap` потоков переподписывают барьерную модель компута и раздувают время смоука.
+fn ci_thread_budget(cap: usize) -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+        .min(cap)
+}
+
 fn load_fixture() -> Vec<u8> {
     std::fs::read(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -84,7 +93,7 @@ fn shakespeare_char_smoke() {
         eval_every: 50,
         eval_windows: 8,
         ckpt_every: 0,
-        threads: 8,
+        threads: ci_thread_budget(8),
         out_dir: std::env::temp_dir().join("ggrs_shakespeare_smoke"),
         seed: 1,
     };
@@ -129,7 +138,7 @@ fn shakespeare_char_long_run() {
         eval_every: 200,
         eval_windows: 8,
         ckpt_every: 500,
-        threads: 4,
+        threads: ci_thread_budget(4),
         out_dir: std::env::temp_dir().join("ggrs_shakespeare_long"),
         seed: 1,
     };
