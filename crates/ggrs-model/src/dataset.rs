@@ -1,4 +1,5 @@
-//! Формат GGTK (бинарный поток токенов) и сэмплирование корпуса для обучения BPE.
+//! Формат GGTK (бинарный поток токенов), сэмплирование корпуса для обучения BPE,
+//! загрузка потока токенов (TokenBin) и нарезка окон обучения (WindowSampler, val_windows).
 //!
 //! GGTK — файл потока токенов (little-endian):
 //! ```text
@@ -9,10 +10,130 @@
 //! ```
 
 use std::fs::File;
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::Path;
 
+use ggrs_core::util::Lcg;
+
 const GGTK_MAGIC: &[u8; 4] = b"GGTK";
+
+// ── TokenBin ─────────────────────────────────────────────────────────────────
+
+/// Загруженный поток токенов формата GGTK.
+pub struct TokenBin {
+    pub tokens: Vec<u16>,
+    pub vocab_size: u32,
+}
+
+impl TokenBin {
+    /// Прочитать файл формата GGTK (magic "GGTK", vocab_size u32, n_tokens u64, данные u16 LE).
+    /// Несовпадение magic/размера → io::Error.
+    pub fn load(path: &Path) -> io::Result<TokenBin> {
+        let mut r = BufReader::new(File::open(path)?);
+        let mut magic = [0u8; 4];
+        r.read_exact(&mut magic)?;
+        if &magic != GGTK_MAGIC {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "GGTK: неверный magic"));
+        }
+        let mut b4 = [0u8; 4];
+        r.read_exact(&mut b4)?;
+        let vocab_size = u32::from_le_bytes(b4);
+        let mut b8 = [0u8; 8];
+        r.read_exact(&mut b8)?;
+        let n = u64::from_le_bytes(b8) as usize;
+        let mut bytes = vec![0u8; n * 2];
+        r.read_exact(&mut bytes)?;
+        let tokens = bytes
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        Ok(TokenBin { tokens, vocab_size })
+    }
+
+    pub fn len(&self) -> usize {
+        self.tokens.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.tokens.is_empty()
+    }
+}
+
+// ── WindowSampler ────────────────────────────────────────────────────────────
+
+/// Сэмплер случайных окон обучения.
+pub struct WindowSampler {
+    rng: Lcg,
+    t: usize,
+}
+
+impl WindowSampler {
+    pub fn new(seed: u64, t: usize) -> Self {
+        WindowSampler {
+            rng: Lcg::new(seed),
+            t,
+        }
+    }
+
+    /// Случайное окно длины t: (ids, targets), где ids = tokens[s..s+t] как i32,
+    /// targets = tokens[s+1..s+t+1] как i32. Начало s ∈ [0, len-t-1].
+    /// Требует bin.len() > t.
+    pub fn next_window(&mut self, bin: &TokenBin) -> (Vec<i32>, Vec<i32>) {
+        assert!(
+            bin.len() > self.t,
+            "WindowSampler: корпус короче окна+1"
+        );
+        let max_start = bin.len() - self.t - 1; // включительно
+        // Lcg::next_f32 ∈ [-0.5, 0.5) → u ∈ [0,1) → индекс
+        let u = (self.rng.next_f32() + 0.5).clamp(0.0, 0.999_999);
+        let mut s = (u * (max_start as f32 + 1.0)) as usize;
+        if s > max_start {
+            s = max_start;
+        }
+        let ids: Vec<i32> = bin.tokens[s..s + self.t]
+            .iter()
+            .map(|&x| x as i32)
+            .collect();
+        let targets: Vec<i32> = bin.tokens[s + 1..s + self.t + 1]
+            .iter()
+            .map(|&x| x as i32)
+            .collect();
+        (ids, targets)
+    }
+}
+
+// ── val_windows ──────────────────────────────────────────────────────────────
+
+/// n детерминированных валидационных окон с равномерным шагом по корпусу.
+/// Стабильны между вызовами (не зависят от порядка запусков). Требует bin.len() > t.
+pub fn val_windows(bin: &TokenBin, t: usize, n: usize) -> Vec<(Vec<i32>, Vec<i32>)> {
+    assert!(
+        bin.len() > t,
+        "val_windows: корпус короче окна+1"
+    );
+    let max_start = bin.len() - t - 1;
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        // равномерный шаг; при n==1 берём s=0
+        let s = if n <= 1 {
+            0
+        } else {
+            (i * max_start) / (n - 1)
+        };
+        let ids: Vec<i32> = bin.tokens[s..s + t]
+            .iter()
+            .map(|&x| x as i32)
+            .collect();
+        let targets: Vec<i32> = bin.tokens[s + 1..s + t + 1]
+            .iter()
+            .map(|&x| x as i32)
+            .collect();
+        out.push((ids, targets));
+    }
+    out
+}
+
+// ── write_token_bin ──────────────────────────────────────────────────────────
 
 /// Записать поток токенов в файл формата GGTK (атомарно: tmp + rename).
 pub fn write_token_bin(path: &Path, vocab_size: u32, tokens: &[u16]) -> io::Result<()> {
@@ -35,6 +156,8 @@ pub fn write_token_bin(path: &Path, vocab_size: u32, tokens: &[u16]) -> io::Resu
     }
     std::fs::rename(&tmp, path)
 }
+
+// ── sample_corpus ────────────────────────────────────────────────────────────
 
 /// Равномерный сэмпл корпуса для обучения BPE: конкатенация каждого step-го блока
 /// по 64 КиБ, пока не наберётся ~sample_mib МиБ (или корпус не кончится).
