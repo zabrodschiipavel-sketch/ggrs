@@ -140,6 +140,11 @@ impl WindowSampler {
             .collect();
         (ids, targets)
     }
+
+    /// Состояние ГПСЧ сэмплера (для чекпоинта).
+    pub fn rng_state(&self) -> u64 { self.rng.0 }
+    /// Восстановить состояние ГПСЧ (резюм с чекпоинта).
+    pub fn set_rng_state(&mut self, s: u64) { self.rng.0 = s; }
 }
 
 // ── val_windows ──────────────────────────────────────────────────────────────
