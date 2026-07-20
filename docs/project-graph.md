@@ -1,6 +1,6 @@
 # ggrs — граф проекта: компоненты, зависимости, фазы
 
-Обновлено: 2026-07-12 (после второго круга ревью Фазы 1).
+Обновлено: 2026-07-20 (Фаза 3 закрыта: ВЕХА TinyStories-10M взята).
 Легенда: ✅ готово · 🔄 второй круг · ⬜ впереди · 🔴 обнаруженная скрытая зависимость.
 
 ```mermaid
@@ -28,7 +28,7 @@ flowchart TB
         outprod --> backward --> gradcheck --> adamw --> mlp
     end
 
-    subgraph P3["Фаза 3 — модель ⬜"]
+    subgraph P3["Фаза 3 — модель ✅ (2026-07-20): BPE 4096, GPT multi-head, тренер (побитовый резюм), сэмплер; ВЕХА: TinyStories-10M за 43.7ч, val 8.32→1.78, связные истории — бейзлайн speedrun.md"]
         bpe["BPE-токенизатор<br/>(словарь 4096)"]
         gpt["GPT ~10M: RMSNorm+RoPE<br/>+SwiGLU, multi-head"]
         dataload["Датасет: предтокенизация<br/>+ mmap батчей"]
@@ -38,7 +38,7 @@ flowchart TB
         gpt --> shake
     end
 
-    subgraph P4["Фаза 4 — GGUF ⬜"]
+    subgraph P4["Фаза 4 — GGUF ⬜ (next)"]
         gguf_w["GGUF-запись чекпоинтов"]
         gguf_r["GGUF-чтение"]
         compat["ВЕХА: наш GGUF грузится<br/>в настоящий llama.cpp"]
