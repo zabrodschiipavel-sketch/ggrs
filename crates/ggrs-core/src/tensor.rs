@@ -4,6 +4,11 @@ use crate::op::Op;
 pub const MAX_DIMS: usize = 4;
 pub const MAX_SRC: usize = 4;
 
+pub(crate) fn checked_nelements(ne: [usize; MAX_DIMS]) -> usize {
+    ne.into_iter().try_fold(1usize, usize::checked_mul)
+        .expect("tensor element count overflow")
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub struct TensorId(pub usize);
 
@@ -21,14 +26,16 @@ pub struct Tensor {
 
 impl Tensor {
     pub fn nelements(&self) -> usize {
-        self.ne.iter().product()
+        checked_nelements(self.ne)
     }
     pub fn nrows(&self) -> usize {
-        self.ne[1] * self.ne[2] * self.ne[3]
+        self.ne[1..].iter().try_fold(1usize, |n, &dim| n.checked_mul(dim))
+            .expect("tensor row count overflow")
     }
     /// Число байт, занимаемых тензором в памяти (только для contiguous).
     pub fn nbytes(&self) -> usize {
-        self.dtype.row_size(self.ne[0]) * self.ne[1] * self.ne[2] * self.ne[3]
+        self.dtype.row_size(self.ne[0]).checked_mul(self.nrows())
+            .expect("tensor byte count overflow")
     }
     pub fn is_contiguous(&self) -> bool {
         let ts = self.dtype.type_size();
@@ -42,11 +49,13 @@ impl Tensor {
             return false;
         }
         // nb[2] == nb[1] * ne[1] (если ne[2] != 1)
-        if self.ne[2] != 1 && self.nb[2] != rs * self.ne[1] {
+        let plane = rs.checked_mul(self.ne[1]).expect("tensor stride overflow");
+        if self.ne[2] != 1 && self.nb[2] != plane {
             return false;
         }
         // nb[3] == nb[2] * ne[2] (если ne[3] != 1)
-        if self.ne[3] != 1 && self.nb[3] != rs * self.ne[1] * self.ne[2] {
+        let batch = plane.checked_mul(self.ne[2]).expect("tensor stride overflow");
+        if self.ne[3] != 1 && self.nb[3] != batch {
             return false;
         }
         true

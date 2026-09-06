@@ -271,3 +271,67 @@ fn nan_guard_no_panic() {
         report.skipped_steps, train_cfg.steps, report.final_train_loss
     );
 }
+
+#[test]
+fn invalid_resume_optimizer_state_leaves_weights_unchanged() {
+    use ggrs_model::{save_checkpoint, CheckpointExtra};
+
+    let dir = test_dir("invalid_resume_state");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("invalid.ggrs");
+    let mut source = Context::new(1 << 26);
+    let cfg = GptConfig::tiny();
+    let source_gpt = build_gpt(&mut source, &cfg);
+    let named: Vec<_> = source_gpt.params.iter().map(|(name, id)| (name.as_str(), *id)).collect();
+    let valid_opt: Vec<_> = named.iter().map(|&(name, id)| {
+        let n = source.t(id).nelements();
+        (name.to_string(), vec![0.0; n], vec![0.0; n])
+    }).collect();
+    let bin_train = synth_train();
+    let bin_val = synth_val();
+    let train_cfg = TrainConfig {
+        steps: 1,
+        total_steps: 1,
+        grad_accum: 1,
+        lr: 1e-3,
+        warmup_frac: 0.0,
+        warmdown_frac: 0.0,
+        clip: 1.0,
+        eval_every: 0,
+        eval_windows: 1,
+        ckpt_every: 0,
+        threads: 1,
+        out_dir: dir.join("output"),
+        seed: 1,
+    };
+
+    for case in ["missing", "extra", "name", "m_length", "v_length"] {
+        let mut opt = valid_opt.clone();
+        match case {
+            "missing" => { opt.pop(); }
+            "extra" => { opt.push(opt[0].clone()); }
+            "name" => { opt[0].0 = "wrong_name".to_string(); }
+            "m_length" => { opt[0].1.pop(); }
+            "v_length" => { opt[0].2.pop(); }
+            _ => unreachable!(),
+        }
+        let extra = CheckpointExtra { step: 0, rng: 0, opt };
+        save_checkpoint(&path, &source, &named, &extra).unwrap();
+
+        let mut target = Context::new(1 << 26);
+        let target_gpt = build_gpt(&mut target, &cfg);
+        for &(_, id) in &target_gpt.params {
+            target.data_f32_mut(id).fill(7.0);
+        }
+        let error = train(
+            &mut target, &target_gpt, &bin_train, &bin_val, &train_cfg, Some(&path),
+        ).err().expect("invalid optimizer state must return an error");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData, "{case}");
+        for (name, id) in &target_gpt.params {
+            assert!(target.data_f32(*id).iter().all(|&x| x == 7.0), "{case}: {name} changed");
+        }
+        assert!(!train_cfg.out_dir.exists());
+    }
+    std::fs::remove_file(path).unwrap();
+    std::fs::remove_dir(dir).unwrap();
+}

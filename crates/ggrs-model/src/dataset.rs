@@ -63,7 +63,12 @@ impl TokenBin {
         })?;
 
         // Проверка полного размера файла: 4 (magic) + 4 (vocab_size) + 8 (n_tokens) + data_size
-        let expected_size = 16u64 + data_size as u64;
+        let expected_size = (data_size as u64).checked_add(16).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "GGTK: переполнение полного размера файла",
+            )
+        })?;
         if file_len != expected_size {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,

@@ -92,7 +92,7 @@ fn r_name_checked<R: Read>(r: &mut R, remaining: u64) -> io::Result<(String, u64
         return Err(invalid("GGRS1: имя тензора слишком длинное"));
     }
     // 2. Не больше оставшихся байт
-    if len > remaining {
+    if remaining < 4 || len > remaining - 4 {
         return Err(invalid("GGRS1: недостаточно данных для имени"));
     }
     let len_usize: usize = usize::try_from(len).map_err(|_| invalid("GGRS1: имя не влезает в usize"))?;
@@ -195,6 +195,16 @@ pub fn load_checkpoint(
     ctx: &mut Context,
     named: &[(&str, TensorId)],
 ) -> io::Result<CheckpointExtra> {
+    load_checkpoint_validated(path, ctx, named, |_| Ok(()))
+}
+
+/// Позволяет тренировочному циклу проверить extra до изменения весов.
+pub(crate) fn load_checkpoint_validated(
+    path: &Path,
+    ctx: &mut Context,
+    named: &[(&str, TensorId)],
+    validate_extra: impl FnOnce(&CheckpointExtra) -> io::Result<()>,
+) -> io::Result<CheckpointExtra> {
     let file = File::open(path)?;
     let file_len = file.metadata()?.len();
     let mut remaining = file_len;
@@ -232,7 +242,8 @@ pub fn load_checkpoint(
         remaining -= 4;
         let mut ne = [0usize; 4];
         for d in ne.iter_mut() {
-            *d = r_u64(&mut r)? as usize;
+            *d = usize::try_from(r_u64(&mut r)?)
+                .map_err(|_| invalid("GGRS1: размерность не влезает в usize"))?;
             remaining -= 8;
         }
         let t = ctx.t(id);
@@ -266,6 +277,11 @@ pub fn load_checkpoint(
     remaining -= 8;
     let n_opt = r_u32(&mut r)? as usize;
     remaining -= 4;
+    // Даже пустая запись содержит name_len (4), m_len (8) и v_len (8).
+    // Проверяем счётчик до выделения памяти по недоверенному заголовку.
+    if n_opt as u64 > remaining / 20 {
+        return Err(invalid("GGRS1: число состояний оптимизатора превышает размер файла"));
+    }
     let mut opt = Vec::with_capacity(n_opt);
     for _ in 0..n_opt {
         let (name, consumed) = r_name_checked(&mut r, remaining)?;
@@ -288,6 +304,12 @@ pub fn load_checkpoint(
         opt.push((name, m, v));
     }
 
+    if remaining != 0 {
+        return Err(invalid("GGRS1: лишние данные в конце файла"));
+    }
+    let extra = CheckpointExtra { step, rng, opt };
+    validate_extra(&extra)?;
+
     // --- транзакционная запись: все данные прочитаны успешно ---
     for (i, &(_, id)) in named.iter().enumerate() {
         match &pending[i] {
@@ -296,5 +318,5 @@ pub fn load_checkpoint(
         }
     }
 
-    Ok(CheckpointExtra { step, rng, opt })
+    Ok(extra)
 }

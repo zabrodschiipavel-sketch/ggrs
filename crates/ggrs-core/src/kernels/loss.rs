@@ -34,11 +34,13 @@ pub fn cross_entropy_loss(ctx: &Context, dst_id: TensorId, ith: usize, _nth: usi
             for i in 0..ne0 {
                 sum += (*pl.add(i) - max).exp();
             }
-            let log_z = sum.ln() + max;
+            // Keep the subtraction in shifted coordinates: adding max first
+            // loses ln(sum) entirely for large logits, producing a zero loss.
+            let log_sum = sum.ln();
             for i in 0..ne0 {
                 let t = *pt.add(i);
                 if t != 0.0 {
-                    total += (t * (*pl.add(i) - log_z)) as f64;
+                    total += (t * ((*pl.add(i) - max) - log_sum)) as f64;
                 }
             }
         }

@@ -18,5 +18,7 @@ jobs:
           components: clippy
       - name: Тесты
         run: cargo test --workspace
+      - name: Тесты release
+        run: cargo test --workspace --release
       - name: Clippy (строгий)
         run: cargo clippy --workspace --all-targets -- -D warnings

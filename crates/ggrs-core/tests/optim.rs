@@ -536,3 +536,66 @@ fn grad_accum_reset() {
     assert!(!nan, "NaN не должен быть");
     assert!(norm.is_finite(), "норма должна быть finite");
 }
+
+#[test]
+fn adamw_large_restored_step_keeps_bias_correction_finite() {
+    for saved_step in [i32::MAX as u64, u32::MAX as u64, u64::MAX] {
+        let mut ctx = Context::new(1 << 20);
+        let param = ctx.new_tensor_1d(DType::F32, 1);
+        ctx.set_f32(param, &[1.0]);
+        let grad = make_grad(&mut ctx, 1, &[0.5]);
+        let backward = make_backward(param, grad);
+        let mut opt = AdamW::new(&[param], &ctx, 0.1);
+
+        // A constant gradient has converged moments m = g, v = g^2.
+        // At this age beta^t is zero, so the update must still be lr.
+        opt.restore_state(saved_step, vec![(param, vec![0.5], vec![0.25])]);
+        let (_, skipped) = opt.step(&mut ctx, &backward);
+        assert!(!skipped);
+        let actual = ctx.data_f32(param)[0];
+        assert!(
+            (actual - 0.9).abs() < 1e-6,
+            "step {saved_step}: expected 0.9, got {actual}"
+        );
+        assert_eq!(opt.state().0, saved_step.saturating_add(1));
+    }
+}
+
+#[test]
+fn step_accum_rejects_parameter_count_mismatch_before_mutating_state() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    for extra_acc_param in [true, false] {
+        let mut ctx = Context::new(1 << 20);
+        let first = ctx.new_tensor_1d(DType::F32, 1);
+        let second = ctx.new_tensor_1d(DType::F32, 1);
+        ctx.set_f32(first, &[1.0]);
+        ctx.set_f32(second, &[2.0]);
+        let grad = make_grad(&mut ctx, 1, &[0.5]);
+        let backward = Backward {
+            grads: HashMap::from([(first, grad), (second, grad)]),
+            root: grad,
+        };
+        let params = [first, second];
+        let (opt_count, acc_count) = if extra_acc_param { (1, 2) } else { (2, 1) };
+        let mut opt = AdamW::new(&params[..opt_count], &ctx, 0.1);
+        let mut acc = GradAccum::new(&params[..acc_count], &ctx);
+        acc.add(&ctx, &backward);
+        let before = opt.state().1.to_vec();
+
+        let result = catch_unwind(AssertUnwindSafe(|| opt.step_accum(&mut ctx, &acc)));
+        assert!(result.is_err(), "mismatched parameters must be rejected");
+        assert_eq!(opt.state().0, 0);
+        assert_eq!(opt.state().1, before);
+        assert_eq!(ctx.data_f32(first), &[1.0]);
+        assert_eq!(ctx.data_f32(second), &[2.0]);
+    }
+}
+
+#[test]
+fn lr_schedule_stays_zero_after_training_ends() {
+    let schedule = LrSchedule::new(0.1);
+    for step in [100, 101, u64::MAX] {
+        assert_eq!(schedule.at(step, 100), 0.0);
+    }
+}

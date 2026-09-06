@@ -35,12 +35,11 @@ pub fn chunks(text: &[u8]) -> Vec<&[u8]> {
     out
 }
 
-/// Byte-level BPE токенизатор. Приватные поля:
-/// - `merges` — список слияний, где merges[i] порождает токен 256+i из пары.
-/// - `decode_table` — предразвёрнутые байты каждого токена.
+/// Byte-level BPE токенизатор. `merges[i]` порождает токен 256+i из пары.
+/// Храним граф слияний: развёрнутый словарь может быть экспоненциально
+/// больше файла токенизатора.
 pub struct Bpe {
     merges: Vec<(u16, u16)>,
-    decode_table: Vec<Vec<u8>>,
 }
 
 impl Bpe {
@@ -108,21 +107,7 @@ impl Bpe {
             }
         }
 
-        // Построение decode_table
-        let mut decode_table: Vec<Vec<u8>> = (0u8..=255).map(|b| vec![b]).collect();
-        for &(l, r) in &merges {
-            let left_bytes = decode_table[l as usize].clone();
-            let right_bytes = decode_table[r as usize].clone();
-            let mut merged = Vec::with_capacity(left_bytes.len() + right_bytes.len());
-            merged.extend_from_slice(&left_bytes);
-            merged.extend_from_slice(&right_bytes);
-            decode_table.push(merged);
-        }
-
-        Bpe {
-            merges,
-            decode_table,
-        }
+        Bpe { merges }
     }
 
     /// Закодировать текст в токены u16 (то же разбиение на чанки, что и при обучении).
@@ -201,8 +186,19 @@ impl Bpe {
     /// Декодировать токены обратно в байты (O(выход), без рекурсии).
     pub fn decode(&self, ids: &[u16]) -> Vec<u8> {
         let mut result = Vec::new();
+        let mut pending = Vec::new();
         for &id in ids {
-            result.extend_from_slice(&self.decode_table[id as usize]);
+            pending.push(id);
+            while let Some(token) = pending.pop() {
+                if token < 256 {
+                    result.push(token as u8);
+                } else {
+                    let (left, right) = self.merges[token as usize - 256];
+                    // LIFO: сначала раскрывается левая часть.
+                    pending.push(right);
+                    pending.push(left);
+                }
+            }
         }
         result
     }
@@ -255,6 +251,12 @@ impl Bpe {
             if line.is_empty() {
                 continue;
             }
+            if merge_i == num_merges {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "BPE: больше слияний, чем объявлено в vocab_size",
+                ));
+            }
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() != 2 {
                 return Err(io::Error::new(
@@ -271,8 +273,8 @@ impl Bpe {
 
             // Валидация: на шаге merge_i (порождающем токен 256+merge_i)
             // оба ID обязаны быть УЖЕ существующими токенами.
-            let max_valid = 256u16 + merge_i as u16;
-            if left >= max_valid || right >= max_valid {
+            let max_valid = 256 + merge_i;
+            if left as usize >= max_valid || right as usize >= max_valid {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!(
@@ -297,21 +299,7 @@ impl Bpe {
             ));
         }
 
-        // Построение decode_table
-        let mut decode_table: Vec<Vec<u8>> = (0u8..=255).map(|b| vec![b]).collect();
-        for &(l, r) in &merges {
-            let left_bytes = decode_table[l as usize].clone();
-            let right_bytes = decode_table[r as usize].clone();
-            let mut merged = Vec::with_capacity(left_bytes.len() + right_bytes.len());
-            merged.extend_from_slice(&left_bytes);
-            merged.extend_from_slice(&right_bytes);
-            decode_table.push(merged);
-        }
-
-        Ok(Bpe {
-            merges,
-            decode_table,
-        })
+        Ok(Bpe { merges })
     }
 
     /// Размер словаря: 256 базовых + количество слияний.

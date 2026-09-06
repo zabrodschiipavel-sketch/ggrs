@@ -250,3 +250,62 @@ fn load_rejects_forward_reference() {
     assert!(Bpe::load(&path2).is_err(), "right must be < 256 for first merge");
     let _ = std::fs::remove_file(&path2);
 }
+
+#[test]
+fn load_checks_merge_count_at_maximum_vocabulary() {
+    use std::fmt::Write;
+    let path = std::env::temp_dir().join("ggrs_bpe_max_vocab.txt");
+    let mut text = String::from("65536\n");
+    // 255 * 256 distinct, valid byte pairs fill all 65,280 merge slots.
+    for left in 0..255 {
+        for right in 0..256 {
+            writeln!(text, "{left} {right}").unwrap();
+        }
+    }
+    std::fs::write(&path, &text).unwrap();
+    let bpe = Bpe::load(&path).unwrap();
+    assert_eq!(bpe.vocab_size(), 65536);
+    assert_eq!(bpe.decode(&[u16::MAX]), &[254, 255]);
+
+    text.push_str("0 0\n");
+    std::fs::write(&path, &text).unwrap();
+    let error = Bpe::load(&path).err().expect("extra merge must be rejected");
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn load_does_not_expand_unused_tokens() {
+    use std::fmt::Write;
+    let path = std::env::temp_dir().join("ggrs_bpe_expanding_tokens.txt");
+    let mut text = String::from("768\n97 98\n");
+    for token in 256..767 {
+        writeln!(text, "{token} {token}").unwrap();
+    }
+    std::fs::write(&path, text).unwrap();
+
+    // Each merge doubles decoded length; loading must only store the graph.
+    let bpe = Bpe::load(&path).unwrap();
+    assert_eq!(bpe.vocab_size(), 768);
+    assert_eq!(bpe.decode(&[256, 257, 255]), b"ababab\xff");
+    assert_eq!(bpe.encode(b"abab"), vec![257]);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn decode_handles_deep_merge_graph_without_recursion() {
+    use std::fmt::Write;
+    let path = std::env::temp_dir().join("ggrs_bpe_deep_tokens.txt");
+    let mut text = String::from("65536\n97 98\n");
+    for token in 256..65535 {
+        writeln!(text, "{token} 99").unwrap();
+    }
+    std::fs::write(&path, text).unwrap();
+
+    let bpe = Bpe::load(&path).unwrap();
+    let decoded = bpe.decode(&[u16::MAX]);
+    assert_eq!(decoded.len(), 65281);
+    assert_eq!(&decoded[..2], b"ab");
+    assert!(decoded[2..].iter().all(|&byte| byte == b'c'));
+    std::fs::remove_file(path).unwrap();
+}

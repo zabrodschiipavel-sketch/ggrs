@@ -156,3 +156,69 @@ fn load_rejects_absurd_name_len() {
 
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn load_rejects_absurd_optimizer_count_before_allocation() {
+    let path = tmp_path("ggrs_ckpt_absurd_opt_count.ggrs");
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"GGRS");
+    bytes.extend_from_slice(&1u32.to_le_bytes());
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.extend_from_slice(&0u64.to_le_bytes());
+    bytes.extend_from_slice(&0u64.to_le_bytes());
+    bytes.extend_from_slice(&u32::MAX.to_le_bytes());
+    std::fs::write(&path, bytes).unwrap();
+
+    let mut ctx = Context::new(1 << 16);
+    let error = load_checkpoint(&path, &mut ctx, &[]).err().unwrap();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn load_rejects_trailing_bytes_without_changing_weights() {
+    let path = tmp_path("ggrs_ckpt_trailing_bytes.ggrs");
+    let mut ctx = Context::new(1 << 16);
+    let x = ctx.new_tensor_1d(DType::F32, 2);
+    ctx.set_f32(x, &[1.0, 2.0]);
+    let named = [("x", x)];
+    let extra = CheckpointExtra { step: 0, rng: 0, opt: vec![] };
+    save_checkpoint(&path, &ctx, &named, &extra).unwrap();
+    let mut bytes = std::fs::read(&path).unwrap();
+    bytes.push(0xff);
+    std::fs::write(&path, bytes).unwrap();
+    ctx.set_f32(x, &[7.0, 8.0]);
+
+    let error = load_checkpoint(&path, &mut ctx, &named).err().unwrap();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert_eq!(ctx.data_f32(x), &[7.0, 8.0]);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn all_truncation_points_leave_weights_unchanged() {
+    let path = tmp_path("ggrs_ckpt_all_truncations.ggrs");
+    let mut ctx = Context::new(1 << 16);
+    let x = ctx.new_tensor_1d(DType::F32, 2);
+    let ids = ctx.new_tensor_1d(DType::I32, 2);
+    ctx.set_f32(x, &[1.0, 2.0]);
+    ctx.set_i32(ids, &[3, 4]);
+    let named = [("x", x), ("ids", ids)];
+    let extra = CheckpointExtra {
+        step: 42,
+        rng: 99,
+        opt: vec![("x".into(), vec![1.0, 2.0], vec![3.0, 4.0])],
+    };
+    save_checkpoint(&path, &ctx, &named, &extra).unwrap();
+    let bytes = std::fs::read(&path).unwrap();
+    ctx.set_f32(x, &[7.0, 8.0]);
+    ctx.set_i32(ids, &[9, 10]);
+
+    for end in 0..bytes.len() {
+        std::fs::write(&path, &bytes[..end]).unwrap();
+        assert!(load_checkpoint(&path, &mut ctx, &named).is_err(), "offset {end}");
+        assert_eq!(ctx.data_f32(x), &[7.0, 8.0], "offset {end}");
+        assert_eq!(ctx.data_i32(ids), &[9, 10], "offset {end}");
+    }
+    std::fs::remove_file(path).unwrap();
+}

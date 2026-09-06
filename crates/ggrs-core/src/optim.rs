@@ -48,8 +48,6 @@ impl AdamW {
     /// При NaN все параметры остаются нетронутыми (t уже инкрементирован — это ок,
     /// зафиксировано для будущего восстановления шага).
     pub fn step(&mut self, ctx: &mut Context, grads: &Backward) -> (f32, bool) {
-        self.t = self.t.wrapping_add(1);
-
         // Шаг 2: собрать градиенты из Backward
         let grads_flat: Vec<Vec<f32>> = self
             .state
@@ -60,6 +58,7 @@ impl AdamW {
             })
             .collect();
 
+        self.t = self.t.saturating_add(1);
         self.apply(ctx, &grads_flat)
     }
 
@@ -77,9 +76,11 @@ impl AdamW {
             "AdamW::step_accum: count == 0 — нет накопленных градиентов"
         );
 
-        self.t = self.t.wrapping_add(1);
-
         // Проверка соответствия параметров
+        assert_eq!(
+            self.state.len(), acc.params.len(),
+            "AdamW::step_accum: количество параметров не совпадает"
+        );
         for (i, (param, _, _)) in self.state.iter().enumerate() {
             assert_eq!(
                 *param, acc.params[i],
@@ -96,6 +97,7 @@ impl AdamW {
             .map(|buf| buf.iter().map(|&x| x * inv_count).collect())
             .collect();
 
+        self.t = self.t.saturating_add(1);
         self.apply(ctx, &grads_flat)
     }
 
@@ -124,8 +126,11 @@ impl AdamW {
         };
 
         // Bias correction
-        let inv_beta1_t = 1.0 / (1.0 - self.beta1.powi(self.t as i32));
-        let inv_beta2_t = 1.0 / (1.0 - self.beta2.powi(self.t as i32));
+        // Для любого f32 beta в [0, 1) beta^i32::MAX уже округляется в нуль.
+        // Ограничение степени сохраняет этот предел без знакового переполнения.
+        let exponent = self.t.min(i32::MAX as u64) as i32;
+        let inv_beta1_t = 1.0 / (1.0 - self.beta1.powi(exponent));
+        let inv_beta2_t = 1.0 / (1.0 - self.beta2.powi(exponent));
 
         // Обновление параметров
         for ((param, m, v), g) in self.state.iter_mut().zip(grads_flat.iter()) {
@@ -265,9 +270,12 @@ impl LrSchedule {
 
     /// Вычислить LR на шаге `step` при общем числе шагов `total`.
     ///
-    /// total > 0. Линейный warmup, плато, линейный warmdown.
+    /// total > 0. Линейный warmup, плато, линейный warmdown; при step >= total LR = 0.
     pub fn at(&self, step: u64, total: u64) -> f32 {
         assert!(total > 0, "LrSchedule::at: total должен быть > 0");
+        if step >= total {
+            return 0.0;
+        }
 
         let total_f = total as f32;
         let step_f = step as f32;

@@ -9,7 +9,7 @@ use ggrs_core::{
     build_backward, build_forward, compute, AdamW, Context, GradAccum, Graph, LrSchedule, TensorId,
 };
 
-use crate::checkpoint::{load_checkpoint, save_checkpoint, CheckpointExtra};
+use crate::checkpoint::{load_checkpoint_validated, save_checkpoint, CheckpointExtra};
 use crate::dataset::{val_windows, TokenBin, WindowSampler};
 use crate::gpt::Gpt;
 
@@ -117,28 +117,36 @@ pub fn train(
     if let Some(path) = resume {
         let named: Vec<(&str, TensorId)> =
             gpt.params.iter().map(|(n, id)| (n.as_str(), *id)).collect();
-        let extra = load_checkpoint(path, ctx, &named)?;
+        let sizes: Vec<usize> = named.iter().map(|&(_, id)| ctx.t(id).nelements()).collect();
+        let extra = load_checkpoint_validated(path, ctx, &named, |extra| {
+            if extra.opt.len() != named.len() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "GGRS: число состояний оптимизатора не совпадает с числом параметров",
+                ));
+            }
+            for (((name, _), &size), (opt_name, m, v)) in
+                named.iter().zip(&sizes).zip(&extra.opt)
+            {
+                if name != opt_name || m.len() != size || v.len() != size {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("GGRS: состояние оптимизатора не соответствует параметру '{name}'"),
+                    ));
+                }
+            }
+            Ok(())
+        })?;
         start_step = extra.step;
         sampler.set_rng_state(extra.rng);
 
-        // Проверка имён параметров чекпоинта
+        // Структура состояния проверена до применения весов.
         let mv: Vec<(TensorId, Vec<f32>, Vec<f32>)> = gpt
             .params
             .iter()
             .zip(extra.opt.iter())
-            .map(|((name, id), (opt_name, m, v))| {
-                if name != opt_name {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        format!(
-                            "GGRS: несовпадение имён параметров чекпоинта: '{}' vs '{}'",
-                            name, opt_name
-                        ),
-                    ));
-                }
-                Ok((*id, m.clone(), v.clone()))
-            })
-            .collect::<std::io::Result<Vec<_>>>()?;
+            .map(|((_, id), (_, m, v))| (*id, m.clone(), v.clone()))
+            .collect();
         opt.restore_state(extra.step, mv);
     }
 

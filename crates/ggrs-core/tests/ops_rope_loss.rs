@@ -37,3 +37,19 @@ fn cross_entropy_uniform() {
     // loss = -log(1/4) = ln4
     assert!((ctx.data_f32(l)[0] - 4.0f32.ln()).abs() < 1e-5);
 }
+
+#[test]
+fn cross_entropy_large_uniform_logits_preserve_loss() {
+    let mut ctx = Context::new(1024);
+    let logits = ctx.new_tensor_2d(DType::F32, 4, 2);
+    let targets = ctx.new_tensor_2d(DType::F32, 4, 2);
+    ctx.set_f32(targets, &[1., 0., 0., 0., 0., 1., 0., 0.]);
+    let loss = ctx.cross_entropy_loss(logits, targets);
+    let graph = build_forward(&ctx, loss);
+    for offset in [0.0, 1e20, -1e20] {
+        ctx.set_f32(logits, &[offset; 8]);
+        compute(&mut ctx, &graph, 1);
+        assert!((ctx.data_f32(loss)[0] - 4.0f32.ln()).abs() < 1e-6,
+            "incorrect loss with logit offset {offset}");
+    }
+}

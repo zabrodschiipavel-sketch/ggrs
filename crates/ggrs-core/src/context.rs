@@ -2,16 +2,16 @@ use std::cell::UnsafeCell;
 
 use crate::dtype::DType;
 use crate::op::Op;
-use crate::tensor::{Tensor, TensorId, MAX_DIMS, MAX_SRC};
+use crate::tensor::{checked_nelements, Tensor, TensorId, MAX_DIMS, MAX_SRC};
 use crate::util::Lcg;
 
 struct Arena {
     // u64-хранилище гарантирует выравнивание 8 байт для f32/i32-доступа
     // (vec<u8> давал бы выравнивание 1 — чтение *const f32 было бы UB).
-    buf: UnsafeCell<Box<[u64]>>,
+    buf: Box<[UnsafeCell<u64>]>,
 }
-// Ядра пишут в арену через сырые указатели из нескольких потоков,
-// каждый поток — в свои строки. Дисциплина не-алиасинга — на ядрах (как в ggml).
+// Public writes require &mut Context, including compute. Its scoped workers
+// write disjoint output rows; shared public access only reads tensor storage.
 unsafe impl Sync for Arena {}
 
 pub struct Context {
@@ -22,23 +22,30 @@ pub struct Context {
 
 impl Context {
     pub fn new(mem_size: usize) -> Context {
+        let buf = vec![0u64; mem_size.div_ceil(8)].into_boxed_slice();
+        // UnsafeCell<T> has exactly T's layout. Put interior mutability on the
+        // allocation itself, so base() never reborrows all tensor data as &mut.
+        let buf = unsafe { Box::from_raw(Box::into_raw(buf) as *mut [UnsafeCell<u64>]) };
         Context {
             tensors: Vec::new(),
-            arena: Arena { buf: UnsafeCell::new(vec![0u64; mem_size.div_ceil(8)].into_boxed_slice()) },
+            arena: Arena { buf },
             arena_used: 0,
         }
     }
 
     fn alloc(&mut self, nbytes: usize) -> usize {
-        let offset = (self.arena_used + 31) & !31; // 32-байтное выравнивание оффсетов
-        let len = unsafe { (*(*self.arena.buf.get())).len() * 8 };
+        let offset = self.arena_used.checked_add(31)
+            .expect("ggrs: allocation alignment overflow") & !31;
+        let len = self.arena.buf.len() * 8;
         let end = offset.checked_add(nbytes).expect("ggrs: переполнение размера аллокации");
         assert!(end <= len, "ggrs: arena out of memory");
         self.arena_used = end;
         offset
     }
 
+    /// Allocate a tensor. Every dimension must be nonzero.
     pub fn new_tensor(&mut self, dtype: DType, ne: [usize; MAX_DIMS]) -> TensorId {
+        assert!(ne.iter().all(|&dim| dim > 0), "tensor dimensions must be nonzero");
         let nb0 = dtype.type_size();
         let nb1 = dtype.row_size(ne[0]);
         // Проверяемая арифметика layout: в release обычное умножение молча
@@ -90,7 +97,7 @@ impl Context {
     }
 
     pub(crate) fn base(&self) -> *mut u8 {
-        unsafe { (*self.arena.buf.get()).as_mut_ptr() as *mut u8 }
+        self.arena.buf.as_ptr() as *mut u8
     }
 
     pub fn data_f32(&self, id: TensorId) -> &[f32] {
@@ -206,11 +213,13 @@ impl Context {
     fn reshape(&mut self, a: TensorId, ne: [usize; MAX_DIMS]) -> TensorId {
         let t = self.t(a);
         assert!(t.is_contiguous(), "reshape: источник должен быть непрерывным");
-        assert_eq!(t.nelements(), ne.iter().product::<usize>(), "reshape: число элементов не совпадает");
+        assert_eq!(t.nelements(), checked_nelements(ne), "reshape: число элементов не совпадает");
         assert!(ne[0].is_multiple_of(t.dtype.blck_size()), "reshape: ne0 не кратен блоку");
         let ts = t.dtype.type_size();
         let rs = t.dtype.row_size(ne[0]);
-        let nb = [ts, rs, rs * ne[1], rs * ne[1] * ne[2]];
+        let nb2 = rs.checked_mul(ne[1]).expect("reshape: stride overflow");
+        let nb3 = nb2.checked_mul(ne[2]).expect("reshape: stride overflow");
+        let nb = [ts, rs, nb2, nb3];
         self.new_view(a, ne, nb, Op::Reshape)
     }
 
@@ -533,6 +542,8 @@ impl Context {
     /// Обратное распространение SumAll: dst формы like.ne, заполняется g[0].
     /// g — тензор [1] со значением градиента.
     pub fn sum_all_back(&mut self, g: TensorId, like: TensorId) -> TensorId {
+        assert_eq!(self.t(g).dtype, DType::F32, "sum_all_back: gradient must be F32");
+        assert_eq!(self.t(g).nelements(), 1, "sum_all_back: gradient must be scalar");
         let ne = self.t(like).ne;
         let dst = self.new_tensor(DType::F32, ne);
         let d = self.t_mut(dst);
@@ -560,6 +571,8 @@ impl Context {
     fn binary_op(&mut self, op: Op, a: TensorId, b: TensorId) -> TensorId {
         let ta = self.t(a);
         let tb = self.t(b);
+        assert_eq!(ta.dtype, DType::F32, "binary_op: only F32");
+        assert_eq!(tb.dtype, DType::F32, "binary_op: only F32");
         // broadcast src1: по каждому измерению ne равны или у b единица
         for i in 0..MAX_DIMS {
             assert!(tb.ne[i] == ta.ne[i] || tb.ne[i] == 1, "binary_op: несовместимые формы");
@@ -573,6 +586,7 @@ impl Context {
     }
 
     fn unary_op(&mut self, op: Op, a: TensorId) -> TensorId {
+        assert_eq!(self.t(a).dtype, DType::F32, "unary_op: only F32");
         let ne = self.t(a).ne;
         let dtype = self.t(a).dtype;
         let dst = self.new_tensor(dtype, ne);

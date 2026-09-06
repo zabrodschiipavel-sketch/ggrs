@@ -186,3 +186,18 @@ fn load_rejects_bad_magic() {
 
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn load_rejects_total_file_size_overflow() {
+    let path = tmp_path("ggrs_test_total_size_overflow.bin");
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"GGTK");
+    bytes.extend_from_slice(&256u32.to_le_bytes());
+    // n * 2 fits in u64, but the 16-byte header makes the size overflow.
+    bytes.extend_from_slice(&(u64::MAX / 2).to_le_bytes());
+    std::fs::write(&path, bytes).unwrap();
+
+    let error = TokenBin::load(&path).err().expect("invalid size must be rejected");
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    std::fs::remove_file(path).unwrap();
+}
